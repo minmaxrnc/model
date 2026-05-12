@@ -132,7 +132,7 @@ pytest
   title   = {{MinMax} Recurrent Neural Cascades},
   year    = {2026},
   url     = {https://github.com/minmaxrnc/model},
-  version = {0.1.0},
+  version = {0.1.1},
 }
 ```
 
