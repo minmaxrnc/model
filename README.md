@@ -56,12 +56,8 @@ u = torch.randn(batch_size, seq_len, 512)
 y = model(u, unroll_steps=seq_len)            # (B, T, 512)
 
 # Carry state across calls (streaming inference)
-y, state = model(u, return_state=True)
-y_next   = model(u_next, state=state)
-
-# Carry state across multi-step calls (streaming inference, 64 steps in parallel)
-y, state = model(u, return_state=True, unroll_steps=64)
-y_next   = model(u_next, state=state)
+y, state = model(u, unroll_steps=64, return_state=True)
+y_next   = model(u_next, unroll_steps=64, state=state)
 ```
 
 ### Language model
@@ -76,13 +72,13 @@ model = MinMaxRNC_LM(
 )
 
 tokens = torch.randint(0, 50257, (batch_size, seq_len))
-logits = model(tokens)                     # (B, T, vocab_size)
+logits = model(tokens, unroll_steps=seq_len)      # (B, T, vocab_size)
 
 # Autoregressive generation
-logits, state = model(tokens[:, :1], return_state=True)
+logits, state = model(tokens[:, :1], unroll_steps=seq_len-1, return_state=True)
 for _ in range(max_new_tokens):
     next_tok = logits[:, -1].argmax(-1, keepdim=True)
-    logits, state = model(next_tok, state=state, return_state=True)
+    logits, state = model(next_tok, unroll_steps=1, state=state, return_state=True)
 ```
 
 ### Custom configuration
