@@ -4,6 +4,11 @@ A parallelisable recurrent sequence model built on the **MinMax operator** —
 expressively powerful, efficiently implementable, and provably not affected by
 vanishing or exploding gradient.
 
+Resources:
+- [Paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
+- [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
+
+
 ## Key properties
 
 - **Perfect memory.** MinMax neurons can store and retain information arbitrarily long (formal
@@ -21,14 +26,11 @@ vanishing or exploding gradient.
 Each layer contains three sub-modules applied with pre-norm and residual
 connections:
 
-
 1. **MinMax Neuron** — the recurrent cell, updating a hidden state
    `x_{t+1} = max(min(r_t, x_t), s_t)` element-wise in parallel via a prefix scan.
 2. **Convolution** — one-step causal mixing.
 3. **Feed-forward network** — feature mixing (gated or standard MLP).
 
-See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
-See [`docs/model.md`](docs/model.md) for the architecture reference.
 
 ## Installation
 
