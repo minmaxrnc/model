@@ -56,8 +56,8 @@ u = torch.randn(batch_size, seq_len, 512)
 y = model(u, unroll_steps=seq_len)            # (B, T, 512)
 
 # Carry state across calls (streaming inference)
-y, state = model(u, unroll_steps=64, return_state=True)
-y_next   = model(u_next, unroll_steps=64, state=state)
+y, state = model(u, unroll_steps, return_state=True)
+y_next   = model(u_next, unroll_steps, state=state)
 ```
 
 ### Language model
