@@ -114,7 +114,7 @@ model = MinMaxRNC(cfg)
 ## Running the tests
 
 ```bash
-python -m unittest src.minmax.test -v
+pytest
 ```
 
 ## How to cite
