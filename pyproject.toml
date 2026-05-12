@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Alessandro Ronca
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minmaxrnc"
+version = "0.1.0"
+description = "MinMax Recurrent Neural Cascade"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+  { name = "Alessandro Ronca", email = "alessandro.ronca@iris-ai.org" }
+]
+keywords = ["deep learning", "sequence model", "recurrent neural network", "language model"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "torch>=2.0",
+]
+
+[project.urls]
+Homepage    = "https://github.com/minmaxrnc/model"
+Repository  = "https://github.com/minmaxrnc/model"
+Issues      = "https://github.com/minmaxrnc/model/issues"
+Documentation = "https://github.com/minmaxrnc/model/blob/main/docs/model.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
