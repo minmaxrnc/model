@@ -35,6 +35,10 @@ class MinMaxRNCLMConfig:
         mixing of the previous and current token.  'gated' — adds a learned
         scalar gate interpolating between them.
         Overrides backbone.conv_type when set.
+    ffn_dropout : float
+        Dropout applied inside the FFN of every layer except the first, which
+        uses backbone.prelayers_dropout (default 0.0) instead.
+        Overrides backbone.ffn_dropout when set.
     """
 
     backbone:     MinMaxRNCConfig
@@ -42,6 +46,7 @@ class MinMaxRNCLMConfig:
     tie_weights:  bool     = True
     output_gate:  bool     = True
     conv_type:    ConvType = 'basic'
+    ffn_dropout:  float    = 0.1
 
 
 class MinMaxRNC_LM(MinMaxRNC):
@@ -71,7 +76,7 @@ class MinMaxRNC_LM(MinMaxRNC):
     def __init__(self, vocab_size: int, cfg: MinMaxRNCLMConfig):
         self.__lm_cfg   = cfg
         self.__vocab_size = vocab_size
-        backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type)
+        backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type, ffn_dropout=cfg.ffn_dropout)
         super().__init__(backbone)   # calls reset() → MinMaxRNC.reset() then our additions
         self.__lm_reset()
 

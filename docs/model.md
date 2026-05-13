@@ -165,12 +165,12 @@ All architecture hyperparameters are specified through a single flat
 | `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) |
 | `ffn_proj_factor` | float | `1.3` | FFN hidden-dim expansion factor |
 | `ffn_act_fn` | str | `'relu'` | FFN activation: `'relu'`, `'relu^2'`, `'gelu'`, `'swish'`, `'sigmoid'`, `'selu'` |
-| `ffn_dropout` | float | `0.0` | Dropout inside the FFN |
+| `ffn_dropout` | float | `0.1` | Dropout inside the FFN |
 | `ffn_init` | str | `'scaled'` | FFN init: `'basic'` (PyTorch default) or `'scaled'` (small\_init + wang\_init) |
-| `output_gate` | bool | `False` | Gate the neuron output by a learned projection of the input |
+| `output_gate` | bool | `True` | Gate the neuron output by a learned projection of the input |
 | `train_init` | bool | `False` | Make the initial hidden state x₀ a learned parameter |
 | `neuron_dropout` | float | `0.0` | Dropout on the neuron input |
-| `conv_type` | str | `'gated'` | `'gated'` (scalar gate) or `'basic'` (linear mix) |
+| `conv_type` | str | `'basic'` | `'gated'` (scalar gate) or `'basic'` (linear mix) |
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |

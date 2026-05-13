@@ -116,7 +116,7 @@ class MinMaxRNCConfig:
     ffn_type:        FFType   = 'gated'
     ffn_proj_factor: float    = 1.3
     ffn_act_fn:      str      = 'relu'
-    ffn_dropout:     float    = 0.0
+    ffn_dropout:     float    = 0.1
     ffn_init:        InitType = 'scaled'
 
     # Neuron
@@ -125,7 +125,7 @@ class MinMaxRNCConfig:
     neuron_dropout:  float = 0.0
 
     # Conv
-    conv_type:       ConvType = 'gated'
+    conv_type:       ConvType = 'basic'
     conv_init_val:   float    = 0.0
 
     # Per-layer options
