@@ -57,7 +57,7 @@ class MinMaxNeuron(nn.Module):
     Output projection:
 
         y_t = W_o x_t                             (output_gate=False)
-        y_t = W_o (x_t ⊙ W_g u_t)                 (output_gate=True)
+        y_t = W_o (x_t ⊙ σ(W_g u_t))              (output_gate=True)
     """
 
     def __init__(self, cfg: MinMaxNeuronConfig):
@@ -141,7 +141,7 @@ class MinMaxNeuron(nn.Module):
         # ----- Compute outputs -----
         x_latest = x_post[:,-1,:]         # (B,T,D)
         if self.cfg.output_gate:
-            x_post = x_post * self.o_g(u) # (B,T,D)
+            x_post = x_post * torch.sigmoid(self.o_g(u))
         output = self.o(x_post)           # (B,T,I)
 
         return output, x_latest

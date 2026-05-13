@@ -4,9 +4,9 @@
 import torch
 import torch.nn as nn
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from .minmax_rnc             import MinMaxRNC, MinMaxRNCConfig
+from .minmax_rnc             import MinMaxRNC, MinMaxRNCConfig, ConvType
 from .modules.initialisers   import small_init_init_
 
 
@@ -25,11 +25,23 @@ class MinMaxRNCLMConfig:
     tie_weights : bool
         If True (default), the LM head weight matrix is shared with the token
         embedding matrix, halving those parameters and acting as a regulariser.
+    output_gate : bool
+        If True (default), each neuron's output is element-wise multiplied by
+        σ(W_g u) before the final projection, so the gate starts near 0.5
+        (fully open) and gradient flows freely from the start.
+        Overrides backbone.output_gate when set.
+    conv_type : 'basic' | 'gated'
+        Short-range convolution variant.  'basic' (default) — learned linear
+        mixing of the previous and current token.  'gated' — adds a learned
+        scalar gate interpolating between them.
+        Overrides backbone.conv_type when set.
     """
 
     backbone:     MinMaxRNCConfig
-    head_dropout: float = 0.0
-    tie_weights:  bool  = True
+    head_dropout: float    = 0.0
+    tie_weights:  bool     = True
+    output_gate:  bool     = True
+    conv_type:    ConvType = 'basic'
 
 
 class MinMaxRNC_LM(MinMaxRNC):
@@ -59,7 +71,8 @@ class MinMaxRNC_LM(MinMaxRNC):
     def __init__(self, vocab_size: int, cfg: MinMaxRNCLMConfig):
         self.__lm_cfg   = cfg
         self.__vocab_size = vocab_size
-        super().__init__(cfg.backbone)   # calls reset() → MinMaxRNC.reset() then our additions
+        backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type)
+        super().__init__(backbone)   # calls reset() → MinMaxRNC.reset() then our additions
         self.__lm_reset()
 
     def reset(self):
