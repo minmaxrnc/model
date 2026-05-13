@@ -61,7 +61,7 @@ The output is projected back to the input space:
 
 ```
 yₜ = Wₒ xₜ                            (output_gate=False)
-yₜ = Wₒ (xₜ ⊙ Wᵍ uₜ)                  (output_gate=True)
+yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))               (output_gate=True)
 ```
 
 ### Parallel Computation via Prefix Scan
@@ -183,6 +183,8 @@ All architecture hyperparameters are specified through a single flat
 | `backbone` | MinMaxRNCConfig | — | Backbone configuration |
 | `head_dropout` | float | `0.0` | Dropout before the LM head |
 | `tie_weights` | bool | `True` | Share embedding and LM-head weights |
+| `output_gate` | bool | `True` | Gate each neuron output by σ(W_g u); overrides `backbone.output_gate` |
+| `conv_type` | `'basic'` \| `'gated'` | `'basic'` | Short-range conv variant; overrides `backbone.conv_type` |
 
 ### Preset factories
 
