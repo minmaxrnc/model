@@ -8,7 +8,7 @@ from typing      import Optional, Literal, Union
 from dataclasses import dataclass, replace
 
 from .minmax_layer              import MinMaxLayer, MinMaxLayerConfig, NormType
-from .minmax_neuron             import MinMaxNeuronConfig
+from .minmax_neuron             import MinMaxNeuronConfig, SRInitType
 from .modules.feedforward       import FeedForwardConfig, FFType, InitType, create_feedforward
 from .modules.basic_conv        import BasicConvConfig
 from .modules.gated_conv        import GatedConvConfig
@@ -120,9 +120,10 @@ class MinMaxRNCConfig:
     ffn_init:        InitType = 'scaled'
 
     # Neuron
-    output_gate:     bool  = True
-    train_init:      bool  = False
-    neuron_dropout:  float = 0.0
+    output_gate:     bool       = True
+    train_init:      bool       = False
+    neuron_dropout:  float      = 0.0
+    s_r_init:        SRInitType = 'small_init'
 
     # Conv
     conv_type:       ConvType = 'basic'
@@ -143,6 +144,7 @@ class MinMaxRNCConfig:
             dropout     = self.neuron_dropout,
             train_init  = self.train_init,
             output_gate = self.output_gate,
+            s_r_init    = self.s_r_init,
         )
         if self.conv_type == 'basic':
             conv_cfg = BasicConvConfig(embedding_dim=self.d_model)
