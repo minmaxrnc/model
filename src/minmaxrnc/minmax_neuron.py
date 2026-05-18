@@ -11,7 +11,7 @@ from .modules.initialisers import wang_init_, small_init_init_
 from . import minmax_scan
 
 
-SRInitType = Literal['small_init', 'kaiming']
+SRInitType = Literal['small_init', 'kaiming', 'asymmetric']
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,11 @@ class MinMaxNeuronConfig:
         keeping early activations small in deep networks.
         'kaiming' — PyTorch default Kaiming uniform (fan_in=d_model), which
         gives a larger initial scale and more aggressive early state transitions.
+        'asymmetric' — treats s and r differently: s gets Kaiming weights plus
+        a positive bias (+1.0) so it fires immediately from x_0=0 and encodes
+        token identity with sufficient variance; r gets small_init weights and
+        zero bias so it stays near zero early on and does not clip x back toward
+        the dead zone.
     """
 
     _num_blocks: int
@@ -99,13 +104,28 @@ class MinMaxNeuron(nn.Module):
         if self.cfg.s_r_init == 'kaiming':
             nn.init.kaiming_uniform_(self.s.weight, a=math.sqrt(5))
             nn.init.kaiming_uniform_(self.r.weight, a=math.sqrt(5))
+            if self.s.bias is not None:
+                nn.init.zeros_(self.s.bias)
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
+        elif self.cfg.s_r_init == 'asymmetric':
+            # s: Kaiming weights + positive bias so s fires from x_0=0 in most
+            # dimensions, eliminating the r>0>s dead zone.
+            # r: small_init weights + zero bias so r stays near zero and does
+            # not clip x back toward 0 while s is learning to write.
+            nn.init.kaiming_uniform_(self.s.weight, a=math.sqrt(5))
+            small_init_init_(self.r.weight, dim=self.I)
+            if self.s.bias is not None:
+                nn.init.constant_(self.s.bias, 1.0)
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
         else:
             small_init_init_(self.s.weight, dim=self.I)
             small_init_init_(self.r.weight, dim=self.I)
-        if self.s.bias is not None:
-            nn.init.zeros_(self.s.bias)
-        if self.r.bias is not None:
-            nn.init.zeros_(self.r.bias)
+            if self.s.bias is not None:
+                nn.init.zeros_(self.s.bias)
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
         # Init 'o' — use dim=self.D (d_state) so wang_init_'s residual-stream
         # scaling holds for any d_state, not just when d_state == d_model.
         wang_init_(self.o.weight, dim=self.D, num_blocks=self.cfg._num_blocks)
