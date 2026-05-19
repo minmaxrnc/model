@@ -131,6 +131,12 @@ class MinMaxNeuron(nn.Module):
         wang_init_(self.o.weight, dim=self.D, num_blocks=self.cfg._num_blocks)
         if self.o.bias is not None:
             nn.init.zeros_(self.o.bias)
+        # Init 'o_g' — small weights keep the gate near 0.5 (sigmoid(~0)) at
+        # init; zero bias removes the per-dimension offset from PyTorch's default.
+        if self.cfg.output_gate:
+            small_init_init_(self.o_g.weight, dim=self.I)
+            if self.o_g.bias is not None:
+                nn.init.zeros_(self.o_g.bias)
 
 
     @property

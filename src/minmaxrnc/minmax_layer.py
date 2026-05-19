@@ -58,9 +58,9 @@ class MinMaxLayer(nn.Module):
 
     Internal data flow (all operations use pre-norm and residual connections):
 
-        conv_out  = Conv( norm(u) )          # short-range context
+        conv_out  = Conv( norm(u) )                      # short-range context
         ffn_out   = FFN( norm(u + conv_out) )
-        neur_out  = Neuron( norm(u + ffn_out) )
+        neur_out  = Neuron( norm(u + conv_out + ffn_out) )
         output    = u + neur_out
     """
 
@@ -122,7 +122,7 @@ class MinMaxLayer(nn.Module):
         ffn_in = self.norm_ffn(u + conv)
         ffn = self.ffn(ffn_in)
 
-        neuron_in = self.norm_neuron(u + ffn)
+        neuron_in = self.norm_neuron(u + conv + ffn)
         neuron, neuron_state = self.neuron(neuron_in, state['neuron'])
 
         output = u + neuron

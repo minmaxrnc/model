@@ -26,7 +26,7 @@ class BasicConvConfig:
     """
 
     embedding_dim:      int
-    init:               InitType = 'default'
+    init:               InitType = 'scaled'
     _in_embedding_dim:  int      = -1
 
     def __post_init__(self):

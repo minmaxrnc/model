@@ -114,7 +114,7 @@ class FeedForward(nn.Module):
             small_init_init_(self.proj_up.weight, dim=self.cfg.embedding_dim)
             if self.proj_up.bias is not None:
                 nn.init.zeros_(self.proj_up.bias)
-            wang_init_(self.proj_down.weight, dim=self.cfg.embedding_dim,
+            wang_init_(self.proj_down.weight, dim=self.cfg._proj_up_dim,
                        num_blocks=self.cfg._num_blocks)
             if self.proj_down.bias is not None:
                 nn.init.zeros_(self.proj_down.bias)
@@ -145,7 +145,7 @@ class GatedFeedForward(nn.Module):
             small_init_init_(self.proj_up.weight, dim=self.cfg.embedding_dim)
             if self.proj_up.bias is not None:
                 nn.init.zeros_(self.proj_up.bias)
-            wang_init_(self.proj_down.weight, dim=self.cfg.embedding_dim,
+            wang_init_(self.proj_down.weight, dim=self.cfg._proj_up_dim,
                        num_blocks=self.cfg._num_blocks)
             if self.proj_down.bias is not None:
                 nn.init.zeros_(self.proj_down.bias)
