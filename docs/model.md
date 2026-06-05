@@ -241,7 +241,7 @@ The **asymmetric** scheme addresses an initialisation dead zone: with x₀ = 0 a
 | `FeedForward` | σ(W₁x) → W₂ | Vaswani et al., NeurIPS 2017 |
 | `GatedFeedForward` | W₂(σ(gate) ⊙ value), where [gate \| value] = W₁x | Dauphin et al., ICML 2017; Shazeer 2020 |
 
-The gated variant is the default (`ffn_type='ffn_gated'`).  With `act_fn='relu'`
+The gated variant is the default (`ffn_type='gated'`).  With `act_fn='relu'`
 it is **ReGLU**; with `act_fn='swish'` it is **SwiGLU**.
 
 ---

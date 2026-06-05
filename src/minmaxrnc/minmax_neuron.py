@@ -38,7 +38,7 @@ class MinMaxNeuronConfig:
     output_gate : bool
         If True, the output is element-wise multiplied by a sigmoid-gated
         projection of the input before the final linear: y = W_o(x ⊙ σ(W_g u)).
-    s_r_init : 'small_init' | 'kaiming'
+    s_r_init : 'small_init' | 'kaiming' | 'asymmetric'
         Initialisation scheme for the s and r input projections.
         'small_init' (default) — normal with std = sqrt(2/(5·d_model)),
         keeping early activations small in deep networks.

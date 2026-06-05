@@ -23,13 +23,13 @@ Resources:
 
 ## The model
 
-Each layer contains three sub-modules applied with pre-norm and residual
-connections:
+Each layer contains three sub-modules applied sequentially with pre-norm and
+residual connections:
 
-1. **MinMax Neuron** — the recurrent cell, updating a hidden state
+1. **Convolution** — one-step causal mixing.
+2. **Feed-forward network** — feature mixing (gated or standard MLP).
+3. **MinMax Neuron** — the recurrent cell, updating a hidden state
    `x_{t+1} = max(min(r_t, x_t), s_t)` element-wise in parallel via a prefix scan.
-2. **Convolution** — one-step causal mixing.
-3. **Feed-forward network** — feature mixing (gated or standard MLP).
 
 
 ## Installation
@@ -76,8 +76,8 @@ model = MinMaxRNC_LM(
 tokens = torch.randint(0, 50257, (batch_size, seq_len))
 logits = model(tokens, unroll_steps=seq_len)      # (B, T, vocab_size)
 
-# Autoregressive generation
-logits, state = model(tokens[:, :1], unroll_steps=seq_len-1, return_state=True)
+# Autoregressive generation: prefill on prompt, then generate token by token
+logits, state = model(tokens, unroll_steps=seq_len, return_state=True)
 for _ in range(max_new_tokens):
     next_tok = logits[:, -1].argmax(-1, keepdim=True)
     logits, state = model(next_tok, unroll_steps=1, state=state, return_state=True)

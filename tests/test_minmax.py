@@ -391,11 +391,11 @@ class TestMinMaxRNCOptions(unittest.TestCase):
         self.assertEqual(y.shape, (B, T, cfg.d_model))
         self.assertEqual(len(state), cfg.n_layers)
 
-    def test_simple_conv(self):
-        self._smoke(MinMaxRNCConfig(d_model=D, n_layers=2, d_state=8, conv_type='simple'))
+    def test_basic_conv(self):
+        self._smoke(MinMaxRNCConfig(d_model=D, n_layers=2, d_state=8, conv_type='basic'))
 
-    def test_simplesimple_conv(self):
-        self._smoke(MinMaxRNCConfig(d_model=D, n_layers=2, d_state=8, conv_type='simplesimple'))
+    def test_gated_conv(self):
+        self._smoke(MinMaxRNCConfig(d_model=D, n_layers=2, d_state=8, conv_type='gated'))
 
     def test_output_gate(self):
         self._smoke(MinMaxRNCConfig(d_model=D, n_layers=2, d_state=8, output_gate=True))

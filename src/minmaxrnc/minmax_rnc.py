@@ -59,7 +59,7 @@ class MinMaxRNCConfig:
     ffn_dropout : float
         Dropout applied inside the FFN of every layer except possibly the first
         (see prelayers_dropout).
-    ffn_init : 'default' | 'scaled'
+    ffn_init : 'basic' | 'scaled'
         Weight initialisation scheme.  'scaled' uses small_init for the
         up-projection and wang_init for the down-projection.
 
@@ -75,10 +75,10 @@ class MinMaxRNCConfig:
 
     Convolution
     -----------
-    conv_type : 'gated' | 'basic'
-        'gated' (default) — learned scalar gate interpolating between
-        the previous and current token.  'basic' — learned linear mixing of
-        the previous and current token representations.
+    conv_type : 'basic' | 'gated'
+        'basic' (default) — learned linear mixing of the previous and current
+        token representations.  'gated' — learned scalar gate interpolating
+        between them.
     conv_init_val : float
         Initial value of the gate logit in GatedConv.  0.0 → gate ≈ 0.5
         (equal mix); negative values bias toward the current token.
@@ -91,16 +91,6 @@ class MinMaxRNCConfig:
     use_postlayers_ffn : bool
         If True, an extra FFN (with the same type and factor as the in-layer
         FFN) is applied after all layers, before postlayers_norm.
-
-    Forward
-    -------
-    unroll_steps : int
-        Sequence chunk size for the forward pass.  The sequence is split into
-        chunks of this length and processed sequentially (carrying the state
-        across chunks).  unroll_steps=1 processes one token at a time;
-        unroll_steps=T processes the whole sequence at once.  Both give
-        identical outputs; larger values use more peak memory.
-
     """
 
     # Core architecture
@@ -148,11 +138,13 @@ class MinMaxRNCConfig:
         )
         if self.conv_type == 'basic':
             conv_cfg = BasicConvConfig(embedding_dim=self.d_model)
-        else:
+        elif self.conv_type == 'gated':
             conv_cfg = GatedConvConfig(
                 embedding_dim = self.d_model,
                 init_val      = self.conv_init_val,
             )
+        else:
+            raise ValueError(f"Unknown conv_type '{self.conv_type}'. Valid values: 'basic', 'gated'.")
         ffn_cfg = FeedForwardConfig(
             _num_blocks  = self.n_layers,
             ffn_type     = self.ffn_type,
