@@ -48,7 +48,7 @@ installing this package.
 
 ```python
 import torch
-from minmax import MinMaxRNC, MinMaxRNCConfig
+from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
 
 model = MinMaxRNC(MinMaxRNCConfig.medium())   # d_model=512
 
@@ -58,15 +58,15 @@ u = torch.randn(batch_size, seq_len, 512)
 y = model(u, unroll_steps=seq_len)            # (B, T, 512)
 
 # Carry state across calls (streaming inference)
-y, state = model(u, unroll_steps, return_state=True)
-y_next   = model(u_next, unroll_steps, state=state)
+y, state = model(u, seq_len, return_state=True)
+y_next   = model(u_next, seq_len, state=state)
 ```
 
 ### Language model
 
 ```python
 import torch
-from minmax import MinMaxRNC_LM, MinMaxRNCLMConfig, MinMaxRNCConfig
+from minmaxrnc import MinMaxRNC_LM, MinMaxRNCLMConfig, MinMaxRNCConfig
 
 model = MinMaxRNC_LM(
     vocab_size = 50257,
@@ -86,7 +86,7 @@ for _ in range(max_new_tokens):
 ### Custom configuration
 
 ```python
-from minmax import MinMaxRNC, MinMaxRNCConfig
+from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
 
 cfg = MinMaxRNCConfig(
     d_model          = 768,

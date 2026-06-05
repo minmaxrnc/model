@@ -92,8 +92,8 @@ MinMaxRNC_LM
     │   ├── norm_conv   → BasicConv / GatedConv
     │   ├── norm_ffn    → FeedForward / GatedFeedForward
     │   └── norm_neuron → MinMaxNeuron
-    └── postlayers_norm
     └── postlayers_ffn  (optional)
+    └── postlayers_norm
 └── head_drop   : Dropout
 └── lm_head     : Linear(d_model, vocab_size)
 ```
@@ -108,31 +108,33 @@ Learnable parameters: Wᵣ, Wₛ, Wₒ (and optionally Wᵍ, x₀).
 
 ### MinMax Layer
 
-One residual block. The data flow uses pre-norm and residual connections
-throughout:
+One residual block. The data flow uses pre-norm; only the neuron output is
+added back to the residual stream:
 
 ```
-h₁ = u + Conv( norm(u) )
-h₂ = h₁ + FFN( norm(h₁) )
-output = h₂ + Neuron( norm(h₂) )
+conv   = Conv( norm(u) )
+ffn    = FFN( norm(u + conv) )
+neuron = Neuron( norm(u + conv + ffn) )
+output = u + neuron
 ```
 
-The convolution provides short-range context (one previous token).  The FFN
-mixes features.  The neuron integrates information over arbitrarily long
-ranges via the recurrence.
+Conv and FFN outputs are used to compute a richer input for the neuron but
+are not independently added to the residual stream.  The convolution provides
+short-range context (one previous token).  The FFN mixes features.  The
+neuron integrates information over arbitrarily long ranges via the recurrence.
 
 ### Convolution Variants
 
-**GatedConv** (default) — a learned per-feature scalar gate g ∈ Rᴰ
-interpolates between the previous and current token:
+**BasicConv** (default) — a learned linear projection that concatenates [uₜ₋₁, uₜ]
+and maps back to Rᴰ, giving more expressive local mixing at the cost of 2× the
+parameters.
+
+**GatedConv** — a learned per-feature scalar gate g ∈ Rᴰ interpolates
+between the previous and current token:
 
 ```
 outₜ = σ(g) ⊙ uₜ₋₁ + (1 − σ(g)) ⊙ uₜ
 ```
-
-**BasicConv** — a learned linear projection that concatenates [uₜ₋₁, uₜ]
-and maps back to Rᴰ, giving more expressive local mixing at the cost of 2× the
-parameters.
 
 ### MinMax RNC
 
@@ -170,11 +172,11 @@ All architecture hyperparameters are specified through a single flat
 | `output_gate` | bool | `True` | Gate the neuron output by a learned projection of the input |
 | `train_init` | bool | `False` | Make the initial hidden state x₀ a learned parameter |
 | `neuron_dropout` | float | `0.0` | Dropout on the neuron input |
+| `s_r_init` | str | `'small_init'` | Init scheme for s and r projections: `'small_init'`, `'kaiming'`, or `'asymmetric'` |
 | `conv_type` | str | `'basic'` | `'gated'` (scalar gate) or `'basic'` (linear mix) |
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
-| `unroll_steps` | int | `1` | Sequence chunk size for the forward pass |
 
 ### MinMaxRNCLMConfig
 
@@ -185,6 +187,7 @@ All architecture hyperparameters are specified through a single flat
 | `tie_weights` | bool | `True` | Share embedding and LM-head weights |
 | `output_gate` | bool | `True` | Gate each neuron output by σ(W_g u); overrides `backbone.output_gate` |
 | `conv_type` | `'basic'` \| `'gated'` | `'basic'` | Short-range conv variant; overrides `backbone.conv_type` |
+| `ffn_dropout` | float | `0.1` | Dropout inside the FFN of every layer (except the first, which uses `backbone.prelayers_dropout`); overrides `backbone.ffn_dropout` |
 
 ### Preset factories
 
@@ -199,15 +202,35 @@ MinMaxRNCConfig.large()    # d_model=728, n_layers=12, d_state=1456
 
 ## Initialisers
 
-| Function | Formula | Paper |
-|---|---|---|
-| `small_init_init_(p, dim)` | std = √(2 / (5·dim)) | Nguyen & Salazar, IWSLT 2019 |
-| `wang_init_(p, dim, N)` | std = 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) 
+Both functions initialise by sampling p ~ N(0, σ²); the table gives σ.
 
-`small_init_` keeps output variance near 1 for deep linear layers.
-`wang_init_` additionally divides by N (number of residual blocks) so the
-total variance contributed by all residual branches to the stream stays O(1/N)
-regardless of depth — following the GPT-2 scaled-init strategy.
+| Function | σ | Paper |
+|---|---|---|
+| `small_init_init_(p, dim)` | √(2 / (5·dim)) | Nguyen & Salazar, IWSLT 2019 |
+| `wang_init_(p, dim, N)` | 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
+
+`small_init_` is applied to all **input-side** projections: token embedding,
+LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ,
+and output-gate Wᵍ projections.  It keeps activations small at initialisation
+in deep networks.
+
+`wang_init_` is applied to the two **residual output** projections: the
+neuron output Wₒ and the FFN down-projection.  It additionally divides by N
+(number of residual blocks) so the total variance contributed by all residual
+branches to the stream stays O(1/N) regardless of depth — following the GPT-2
+scaled-init strategy.
+
+### s and r Projection Initialisation
+
+The `s_r_init` config field selects the initialisation scheme for the Wₛ and Wᵣ projections.
+
+| Scheme | Wₛ weights | Wᵣ weights | bₛ | bᵣ |
+|---|---|---|---|---|
+| `'small_init'` | `small_init_` | `small_init_` | 0 | 0 |
+| `'kaiming'` | Kaiming uniform (a=√5) | Kaiming uniform (a=√5) | 0 | 0 |
+| `'asymmetric'` | Kaiming uniform (a=√5) | `small_init_` | +1.0 | 0 |
+
+The **asymmetric** scheme addresses an initialisation dead zone: with x₀ = 0 and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting bₛ = +1.0 ensures s > 0 at initialisation so writes happen from the first token; keeping Wᵣ small prevents r from immediately over-writing the written values.
 
 ---
 
