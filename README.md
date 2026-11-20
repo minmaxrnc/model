@@ -7,7 +7,7 @@ vanishing or exploding gradient.
 Resources:
 - [Project website](https://minmaxrnc.org/) for an overview, results, and news.
 - [Paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
-- <!-- github-only -->Architecture reference in [`docs/model.md`](docs/model.md).<!-- /github-only --><!-- pypi-only [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`. -->
+- <!-- github-only -->Architecture reference in `docs/model.md`.<!-- /github-only --><!-- pypi-only [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`. -->
 
 ## Key properties
 
