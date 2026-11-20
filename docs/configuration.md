@@ -5,7 +5,7 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 # MinMax RNCs — Configuration and Implementation Reference
 
-[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md)
+[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md) · [Upgrading from 0.3.0](upgrading.md)
 
 Configuration fields, numerical precision and initialisation. Notation as in
 [Mathematical foundation](foundations.md).
@@ -21,7 +21,7 @@ All architecture hyperparameters are specified through a single flat
 |---|---|---|---|
 | `d_model` | int | — | Residual-stream / embedding width |
 | `n_layers` | int | — | Number of MinMaxLayers |
-| `d_state` | int | `0` | Legacy name of `scalar_neurons` (the 0.3.0 field, kept for backward compatibility): `d_state=N` builds the same model as `scalar_neurons=N`. Set at most one of the two |
+| `d_state` | int | `0` | Legacy name of `scalar_neurons` (see [Upgrading from 0.3.0](upgrading.md)): `d_state=N` builds the same model as `scalar_neurons=N`. Set at most one of the two |
 | `norm` | str | `'layernorm'` | In-layer pre-norm: `'layernorm'`, `'rmsnorm'`, `'none'` |
 | `postlayers_norm` | str | `'layernorm'` | Norm applied after the final layer |
 | `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) — see [Feed-forward Variants](architecture.md#feed-forward-variants) |
@@ -37,13 +37,11 @@ All architecture hyperparameters are specified through a single flat
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
-| `scalar_neurons` | int | `0` | *0.4.0.* Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, scalar_neurons)`). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
-| `neurons` | tuple | `()` | *0.4.0.* Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1)` or equivalent tuples/lists |
-| `scan_dtype` | str | `'ambient'` | *0.4.0.* Scan precision: `'ambient'` (no casting, 0.3.0 behaviour), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
-| `amp_dtype` | str \| None | `None` | *0.4.0.* Model-level autocast: `None` (caller decides, 0.3.0 behaviour), `'bf16'`, `'fp16'` |
+| `scalar_neurons` | int | `0` | Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, scalar_neurons)`). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
+| `neurons` | tuple | `()` | Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1)` or equivalent tuples/lists |
+| `scan_dtype` | str | `'ambient'` | Scan precision: `'ambient'` (no casting), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
+| `amp_dtype` | str \| None | `None` | Model-level autocast: `None` (caller decides), `'bf16'`, `'fp16'` |
 
-Fields new in 0.4.0 are appended after the 0.3.0 fields, so positional
-construction is unchanged.
 
 ### MinMaxRNCLMConfig
 
@@ -64,17 +62,14 @@ MinMaxRNCConfig.medium()   # d_model=512, n_layers=8,  512 scalar-state neurons
 MinMaxRNCConfig.large()    # d_model=728, n_layers=12, 1456 scalar-state neurons
 ```
 
-The presets set the scalar-state neurons through the legacy field `d_state`, so
-`preset.d_state` keeps its 0.3.0 value; `preset.num_scalar_neurons` gives the
-count whichever field was used.
+`preset.num_scalar_neurons` gives the number of scalar-state neurons.
 
 
 ---
 
 ## Numerical precision
 
-*New in 0.4.0.* Two independent settings control precision; both default to
-the 0.3.0 behaviour.
+Two independent settings control precision; both are off by default.
 
 **`amp_dtype`** — if set, `MinMaxRNC.forward` (and, for `MinMaxRNC_LM`, the
 embedding and LM head as well) runs inside
@@ -117,13 +112,13 @@ min/max *selections*: every state value it produces is one of its input values
    memory for long sequences, so its cost and memory scale with the dtype's
    byte width: about 2× for fp32 vs bf16/fp16.
 
-Under an outer bf16 autocast, `'ambient'` (as in 0.3.0) composes the prefixes in
+Under an outer bf16 autocast, `'ambient'` composes the prefixes in
 bf16 while the fp32 initial state promotes the final application to fp32 —
 mixed and implicit. Pinning makes the choice explicit:
 
 | Recipe | `amp_dtype` | `scan_dtype` | Forward | Scan gradient sums | Scan memory |
 |---|---|---|---|---|---|
-| Full precision / 0.3.0 behaviour (default) | `None` | `'ambient'` | fp32 | fp32 | 4 bytes |
+| Full precision (default) | `None` | `'ambient'` | fp32 | fp32 | 4 bytes |
 | bf16 AMP, fp32 scan | `'bf16'` | `'fp32'` | = bf16 scan | fp32 | 4 bytes |
 | Fully bf16, scan included | `'bf16'` | `'bf16'` | bf16 | bf16 | 2 bytes |
 | fp32 model, bf16 scan | `None` | `'bf16'` | scan rounds its inputs | bf16 | 2 bytes |

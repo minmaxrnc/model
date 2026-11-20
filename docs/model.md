@@ -17,3 +17,5 @@ and
   backbone and the language-model wrapper.
 - [Configuration and implementation](configuration.md) — every configuration field, presets,
   numerical precision, and initialisation.
+- [Upgrading from 0.3.0](upgrading.md) — backward compatibility with 0.3.0: API, weights,
+  outputs, legacy names and precision defaults.

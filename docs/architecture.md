@@ -5,7 +5,7 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 # MinMax RNCs — Architecture
 
-[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md)
+[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md) · [Upgrading from 0.3.0](upgrading.md)
 
 Notation as in [Mathematical foundation](foundations.md): 
 the symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or matrices; 
@@ -75,10 +75,9 @@ recurrence when `unroll_steps = 1`, e.g. for token-by-token generation
 (see [Parallel computation](foundations.md#parallel-computation-via-prefix-scan)).
 
 The group's state is the flat vector of its `num_neurons · d` coordinates (neuron-major). 
-For d = 1 the group is evaluated with the element-wise scan and every parameter, tensor and
-operation is exactly that of 0.3.0's MinMax Neuron. 
-[`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py) (the 0.3.0 class) is the group of [`MinMaxNeuronConfig.d_state`](../src/minmaxrnc/minmax_neuron.py) scalar-state neurons,
-which is how the layer holds the `scalar_neurons` shorthand.
+For d = 1 the group is evaluated with a dedicated element-wise scan.
+The layer holds its `scalar_neurons` as a [`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py), the group of
+[`MinMaxNeuronConfig.d_state`](../src/minmaxrnc/minmax_neuron.py) scalar-state neurons.
 
 **Learnable parameters:** weights $`W_\mathrm{s}`$, $`W_\mathrm{r}`$, $`W_\mathrm{o}`$ and biases
 $`b_\mathrm{s}`$, $`b_\mathrm{r}`$, $`b_\mathrm{o}`$; with the output gate also $`W_\mathrm{g}`$,

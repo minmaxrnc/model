@@ -184,8 +184,7 @@ summed.
 Things to know:
 
 - **Cost.** Scalar-state neurons (`scalar_neurons`, or groups with `d_state=1`) use an
-  element-wise scan: <em>O</em>(<em>T</em> log <em>T</em>) work per neuron, exactly the 0.3.0
-  computation. For <em>d</em> &gt; 1 each scan step composes <em>d</em> × <em>d</em> matrices: work is
+  element-wise scan: <em>O</em>(<em>T</em> log <em>T</em>) work per neuron. For <em>d</em> &gt; 1 each scan step composes <em>d</em> × <em>d</em> matrices: work is
   <em>O</em>(<em>K</em> · <em>T</em> log <em>T</em> · <em>d</em><sup>3</sup>) for <em>K</em> = `num_neurons`, and the scan materialises a
   `(B·num_neurons, T, d, d, d)` intermediate. Keep <em>d</em> small (≈ 2–8) and
   scale with `num_neurons` and more groups instead.
@@ -198,12 +197,12 @@ See the [mathematical foundation](https://github.com/minmaxrnc/model/blob/v0.4.0
 
 ### Mixed precision
 
-New in 0.4.0. Two independent settings, both off by default:
+Two independent settings, both off by default:
 
 | Setting | Values | Effect |
 |---|---|---|
-| `amp_dtype` | `None` (default), `'bf16'`, `'fp16'` | When set, `forward()` runs under `torch.autocast(device, dtype=…)` (the LM wrapper also covers the embedding and head). `None` leaves autocast to the caller, as in 0.3.0. |
-| `scan_dtype` | `'ambient'` (default), `'fp32'`, `'bf16'`, `'fp16'` | Precision of the MinMax scan, in both the forward and the backward pass. `'ambient'` does no casting (0.3.0 behaviour). The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision; the recurrent state is carried in that dtype. |
+| `amp_dtype` | `None` (default), `'bf16'`, `'fp16'` | When set, `forward()` runs under `torch.autocast(device, dtype=…)` (the LM wrapper also covers the embedding and head). `None` leaves autocast to the caller. |
+| `scan_dtype` | `'ambient'` (default), `'fp32'`, `'bf16'`, `'fp16'` | Precision of the MinMax scan, in both the forward and the backward pass. `'ambient'` does no casting. The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision; the recurrent state is carried in that dtype. |
 
 What the scan's precision affects:
 
@@ -225,7 +224,7 @@ Common recipes:
 
 | Goal | `amp_dtype` | `scan_dtype` | Effect |
 |---|---|---|---|
-| Full precision / 0.3.0 behaviour (default) | `None` | `'ambient'` | everything in fp32 |
+| Full precision (default) | `None` | `'ambient'` | everything in fp32 |
 | bf16 AMP, fp32 scan | `'bf16'` | `'fp32'` | same forward as a bf16 scan; scan gradients summed in fp32; more scan memory |
 | Fully bf16, scan included | `'bf16'` | `'bf16'` | least memory; scan gradients summed in bf16 |
 | fp32 model, bf16 scan | `None` | `'bf16'` | only the scan in bf16: it rounds its inputs, saving scan memory and bandwidth |
@@ -244,7 +243,7 @@ model = MinMaxRNC(cfg)
 
 Notes:
 
-- With `scan_dtype='ambient'` under autocast (the 0.3.0 behaviour) the scan
+- With `scan_dtype='ambient'` under autocast the scan
   runs on bf16 projections with an fp32 initial state, so its precision is
   mixed and implicit; pick a pinned `scan_dtype` to make it explicit.
 - An explicit `amp_dtype` overrides the dtype of an outer autocast inside the
@@ -253,44 +252,9 @@ Notes:
 
 ## Upgrading from 0.3.0
 
-0.4.0 is backward compatible with 0.3.0; no code changes are needed.
-
-- **Same API.** Every 0.3.0 class, config field and argument keeps its name,
-  position and meaning, including positional `MinMaxRNCConfig(d_model,
-  n_layers, d_state)`. `d_state` is now the legacy name of `scalar_neurons`:
-  `d_state=N` and `scalar_neurons=N` build exactly the same model (set at most
-  one of them). New config fields are appended after the existing ones and
-  default to the 0.3.0 behaviour (`scalar_neurons=0`, `neurons=()`,
-  `scan_dtype='ambient'`, `amp_dtype=None`). `MinMaxNeuron(cfg)` still
-  builds the layer's `cfg.d_state` scalar-state neurons; it is now a special
-  case of the new `MinMaxNeuronGroup`, which implements neurons of any state
-  dimension.
-- **Same weights.** With the defaults, a model has the same parameter names,
-  shapes and seeded initial values as in 0.3.0, so 0.3.0 checkpoints load
-  with `load_state_dict(strict=True)` and no key remapping.
-- **Same outputs and computation.** Outputs and recurrent states are
-  identical to 0.3.0, in fp32 and under a caller-side `torch.autocast`, and
-  the forward pass runs exactly the same sequence of PyTorch operations, so
-  speed and memory use are unchanged. The test suite checks all of this
-  against reference values recorded with 0.3.0
-  (`tests/test_backward_compat.py`).
-- **Recurrent state format.** Per layer it is still
-  `{'neuron': …, 'conv': …}`; models with `neurons` groups add a
-  `'neuron_groups': [...]` entry (one `(B, num_neurons · d_state)` state per
-  group), and models without scalar neurons have no `'neuron'` entry.
-- **Small behaviour changes**, only for configs 0.3.0 rejected anyway:
-  `d_state` now defaults to 0, so leaving it out raises a `ValueError`
-  (instead of a `TypeError`) unless `scalar_neurons` or `neurons` is given; invalid
-  `scan_dtype`/`amp_dtype` values raise `ValueError`.
-- **From the matrix-neuron experiment branch**, rename config keys
-  `diagonal_d_state → scalar_neurons` and `d_states → neurons`, turning each
-  `(d_state, num_neurons, n_h)` triple into a `(d_state, num_neurons)` pair.
-  Only `n_h = 0` is supported (the rank-1-product parametrisation of
-  `n_h > 0`, and with it `normalize_keys`, was dropped). That branch's
-  checkpoints use different parameter names (`neurons.N.*`) and do not load
-  directly.
-
-See [CHANGELOG.md](https://github.com/minmaxrnc/model/blob/v0.4.0/CHANGELOG.md) for the full list of changes.
+0.4.0 is backward compatible with 0.3.0: no code changes are needed, and 0.3.0 checkpoints load
+as they are. See [docs/upgrading.md](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/upgrading.md) for the details, and
+[CHANGELOG.md](https://github.com/minmaxrnc/model/blob/v0.4.0/CHANGELOG.md) for the full list of changes.
 
 ## Running the tests
 
