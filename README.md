@@ -6,7 +6,8 @@ and not affected by vanishing gradients.
 
 Resources:
 - [Project website](https://minmaxrnc.org/) for an overview, results, and news.
-- [Paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
+- [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and 
+  [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
   <!-- github-only -->
 - Architecture reference in `docs/model.md`.
   <!-- /github-only -->
