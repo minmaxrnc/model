@@ -58,3 +58,59 @@ def all_states(
     a_pref, b_pref = all_composition_prefixes(a, b)
     x1T = minmax_operator.apply(a_pref, b_pref, x0[:, None, :])
     return torch.cat([x0[:, None, :], x1T], dim=1)
+
+
+def all_composition_prefixes_matrix(R: torch.Tensor, s: torch.Tensor):
+    """
+    Inclusive parallel prefix scan of the MinMax matrix recurrence (Hillis-Steele).
+
+    Depth O(log T), work O(T log T · D³) (each combine is a (max,min)-semiring
+    matrix product, see minmax_operator.compose_matrix).
+
+    Inputs
+    ------
+    R : (B, T, D, D)
+    s : (B, T, D)
+        Parameters of the per-step maps f_t(x) = max(R_t ⊗ x, s_t).
+
+    Outputs
+    -------
+    R_pref, s_pref : (B, T, D, D), (B, T, D)
+        Parameters of the prefix-composed maps, so that
+        ``minmax_operator.apply_matrix(R_pref[:, t], s_pref[:, t], x0)``
+        equals the state after applying steps 0 through t from x0.
+    """
+    T = R.shape[1]
+    stride = 1
+    while stride < T:
+        R2, s2 = R[:, stride:], s[:, stride:]
+        R1, s1 = R[:, :-stride], s[:, :-stride]
+        R_new, s_new = minmax_operator.compose_matrix(R2, s2, R1, s1)
+        R = torch.cat([R[:, :stride], R_new], dim=1)
+        s = torch.cat([s[:, :stride], s_new], dim=1)
+        stride *= 2
+    return R, s
+
+
+def all_states_matrix(
+    R: torch.Tensor,
+    s: torch.Tensor,
+    x0: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute all hidden states x_0, …, x_T in parallel for the matrix recurrence.
+
+    Recurrence: x_{t+1} = max(R_t ⊗ x_t, s_t)
+
+    Inputs
+    ------
+    R : (B, T, D, D), s : (B, T, D) — per-step MinMax matrix parameters
+    x0 : (B, D)                     — initial hidden state
+
+    Output
+    ------
+    x : (B, T+1, D) — x[:, 0] == x0; x[:, t+1] is the state after step t
+    """
+    R_pref, s_pref = all_composition_prefixes_matrix(R, s)
+    x1T = minmax_operator.apply_matrix(R_pref, s_pref, x0[:, None, :])
+    return torch.cat([x0[:, None, :], x1T], dim=1)
