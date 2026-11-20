@@ -10,6 +10,10 @@ See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal 
 
 ## Mathematical Foundation
 
+**Notation.** $`\oplus`$ and $`\otimes`$ are the MinMax operations defined below;
+$`\cdot`$ is ordinary (matrix) multiplication; $`*`$ is the element-wise
+(Hadamard) product of vectors; $`\sigma`$ is the logistic sigmoid.
+
 ### The MinMax Algebra
 
 The MinMax algebra replaces addition and multiplication of real numbers with
@@ -17,147 +21,151 @@ max and min:
 
 | Operation | Definition |
 |---|---|
-| MinMax "addition" | `a ⊕ b = max(a, b)` |
-| MinMax "multiplication" | `a ⊗ b = min(a, b)` |
+| MinMax "addition" | $`a \oplus b = \mathrm{max}(a, b)`$ |
+| MinMax "multiplication" | $`a \otimes b = \mathrm{min}(a, b)`$ |
 
 (the (max,min) semiring). Both operations extend to vectors and matrices in
-the usual way, with ⊕ in place of + and ⊗ in place of ×:
+the usual way, with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\times`$:
 
 | Operation | Definition |
 |---|---|
-| vector "sum" | `(x ⊕ y)ᵢ = max(xᵢ, yᵢ)` |
-| matrix-vector "product" | `(R ⊗ x)ᵢ = maxⱼ min(Rᵢⱼ, xⱼ)` |
-| matrix-matrix "product" | `(R ⊗ Q)ᵢₖ = maxⱼ min(Rᵢⱼ, Qⱼₖ)` |
+| vector "sum" | $`(x \oplus y)_i = \mathrm{max}(x_i, y_i)`$ |
+| matrix-vector "product" | $`(R \otimes x)_i = \mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$ |
+| matrix-matrix "product" | $`(R \otimes Q)_{ik} = \mathrm{max}_j\, \mathrm{min}(R_{ij}, Q_{jk})`$ |
 
 ### The MinMax Map
 
-A MinMax map on states of dimension d is the affine map of this algebra,
-parameterised by a matrix R ∈ Rᵈˣᵈ and a vector s ∈ Rᵈ:
+A MinMax map on states of dimension $`d`$ is the affine map of this algebra,
+parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`$:
 
+```math
+f(x) = (R \otimes x) \oplus s,
+\qquad\text{i.e.}\qquad
+f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
-f(x) = (R ⊗ x) ⊕ s
-```
 
-i.e. `f(x)ᵢ = max(maxⱼ min(Rᵢⱼ, xⱼ), sᵢ)`.
+Every coordinate of $`f(x)`$ is *selected* among the entries of $`x`$, $`R`$ and $`s`$ —
+never computed by arithmetic — so $`f`$ keeps values bounded and passes them
+through unchanged.
 
-Every coordinate of f(x) is *selected* among the entries of x, R and s — never
-computed by arithmetic — so f keeps values bounded and passes them through
-unchanged.
+**Scalar case ($`d = 1`$).** With a scalar $`r = R`$, the map is a clamp between
+the lower bound $`s`$ and the upper bound $`r`$:
 
-**Scalar case (d = 1).** With a scalar r = R, the map is a clamp between
-the lower bound s and the upper bound r:
-
-```
-f(x) = max(min(r, x), s)
+```math
+f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
 ```
 
 | Input | Output | Interpretation |
 |---|---|---|
-| `x < s` | `f(x) = s` | lower clamp — signal injection |
-| `s ≤ x ≤ r` | `f(x) = x` | identity — memory preserved unchanged |
-| `x > r` | `f(x) = r` | upper clamp — saturation / forgetting |
+| $`x < s`$ | $`f(x) = s`$ | lower clamp — signal injection |
+| $`s \le x \le r`$ | $`f(x) = x`$ | identity — memory preserved unchanged |
+| $`x > r`$ | $`f(x) = r`$ | upper clamp — saturation / forgetting |
 
-(when r ≥ s; when r < s, f(x) = s for every x). For d > 1 the map also *routes*
-values between coordinates: coordinate i can take the value of coordinate j,
-limited by Rᵢⱼ — which is what lets a neuron permute its state.
+(when $`r \ge s`$; when $`r < s`$, $`f(x) = s`$ for every $`x`$). For $`d > 1`$ the map
+also *routes* values between coordinates: coordinate $`i`$ can take the value of
+coordinate $`j`$, limited by $`R_{ij}`$ — which is what lets a neuron permute its
+state.
 
 ### Composition Closure
 
-The composition of two MinMax maps is again a MinMax map, because ⊗ is
-associative and distributes over ⊕:
+The composition of two MinMax maps is again a MinMax map, because $`\otimes`$ is
+associative and distributes over $`\oplus`$:
 
+```math
+\begin{aligned}
+f_2(f_1(x)) &= (R \otimes x) \oplus s, \quad \text{where} \\
+R &= R_2 \otimes R_1, \\
+s &= (R_2 \otimes s_1) \oplus s_2.
+\end{aligned}
 ```
-f₂(f₁(x)) = (R ⊗ x) ⊕ s
 
-  R = R₂ ⊗ R₁
-  s = (R₂ ⊗ s₁) ⊕ s₂
-```
-
-In the scalar case this reads r = min(r₂, r₁) and s = max(min(r₂, s₁), s₂).
+In the scalar case this reads $`r = \mathrm{min}(r_2, r_1)`$ and
+$`s = \mathrm{max}(\mathrm{min}(r_2, s_1), s_2)`$.
 
 This closure property is what makes the parallel scan possible: instead of
-applying f₁, f₂, …, f_T one by one, all prefix compositions can be computed
-simultaneously in O(log T) depth.
+applying $`f_1, f_2, \ldots, f_T`$ one by one, all prefix compositions can be
+computed simultaneously in $`O(\log T)`$ depth.
 
 ### The MinMax Recurrence
 
-A MinMax neuron with state dimension d maintains a hidden state xₜ ∈ Rᵈ,
+A MinMax neuron with state dimension $`d`$ maintains a hidden state $`x_t \in ℝ^d`$,
 updated at every step by a MinMax map whose parameters are computed from the
-current input uₜ₊₁ ∈ Rᴵ:
+current input $`u_{t+1} \in ℝ^I`$:
 
-```
-xₜ₊₁ = (Rₜ₊₁ ⊗ xₜ) ⊕ sₜ₊₁
+```math
+x_{t+1} = (R_{t+1} \otimes x_t) \oplus s_{t+1}
 ```
 
 where both parameters are affine projections of the input:
 
 | Parameter | Definition | Role |
 |---|---|---|
-| `Rₜ` | `reshape(Wᵣ uₜ, (d, d))` | d² outputs, reshaped to a matrix |
-| `sₜ` | `Wₛ uₜ` | lower bound — write / inject signal |
+| $`R_t`$ | $`\mathrm{reshape}(W_r \cdot u_t, (d, d))`$ | $`d^2`$ outputs, reshaped to a matrix |
+| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — write / inject signal |
 
-Rₜ is unconstrained: every entry is an independent linear function of uₜ, and
-no bounding is needed for stability, since the recurrence only ever *selects*
-values — every entry of a composed Rₜ, and of xₜ itself, is one of the
-per-step values, never an accumulation of them.
+$`R_t`$ is unconstrained: every entry is an independent linear function of $`u_t`$,
+and no bounding is needed for stability, since the recurrence only ever
+*selects* values — every entry of a composed $`R_t`$, and of $`x_t`$ itself, is one
+of the per-step values, never an accumulation of them.
 
-**Scalar-state neurons (d = 1).** With d = 1, Rₜ = rₜ is a scalar and the
+**Scalar-state neurons ($`d = 1`$).** With $`d = 1`$, $`R_t = r_t`$ is a scalar and the
 recurrence is the clamp above:
 
-```
-xₜ₊₁ = max(min(rₜ₊₁, xₜ), sₜ₊₁)
+```math
+x_{t+1} = \mathrm{max}(\mathrm{min}(r_{t+1}, x_t), s_{t+1})
 ```
 
 | Parameter | Definition | Role |
 |---|---|---|
-| `rₜ` | `Wᵣ uₜ` | upper bound — gate / forget signal |
-| `sₜ` | `Wₛ uₜ` | lower bound — write / inject signal |
+| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — gate / forget signal |
+| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — write / inject signal |
 
 This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
-name `d_state`) gives every layer N scalar-state neurons, i.e. a state
-xₜ ∈ Rᴺ updated element-wise. Scalar-state neurons are evaluated with a
-dedicated element-wise scan, so their cost per step is O(1) per neuron.
-Conversely, a d × d matrix whose off-diagonal entries are -∞ decouples the
-coordinates into d scalar-state neurons.
+name `d_state`) gives every layer $`N`$ scalar-state neurons, i.e. a state
+$`x_t \in ℝ^N`$ updated element-wise. Scalar-state neurons are evaluated with a
+dedicated element-wise scan, so their cost per step is $`O(1)`$ per neuron.
+Conversely, a $`d \times d`$ matrix whose off-diagonal entries are $`-\infty`$
+decouples the coordinates into $`d`$ scalar-state neurons.
 
-**Cost.** Per neuron, parameters scale as O(d²) and
-each composition step of the scan as O(d³). A neuron with state dimension d
-can realise permutation semiautomata of degree d, so d should be as large as
-the task needs but typically small; layers scale by having more neurons
-(`num_neurons`) and more neuron groups rather than larger d.
+**Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
+of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
+permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
+needs but typically small; layers scale by having more neurons
+(`num_neurons`) and more neuron groups rather than larger $`d`$.
 
 **Output.** Each neuron's state is projected back to the input space, and
 the outputs of all neurons in a layer are summed:
 
 | `output_gate` | Output |
 |---|---|
-| `False` | `yₜ = Wₒ xₜ` |
-| `True` (default) | `yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))` |
+| `False` | $`y_t = W_o \cdot x_t`$ |
+| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t))`$ |
 
 ### Parallel Computation via Prefix Scan
 
-Given x₀ and the per-step maps f₁, …, f_T (fₜ with parameters Rₜ, sₜ), all
-states x₁, …, x_T can be computed in parallel:
+Given $`x_0`$ and the per-step maps $`f_1, \ldots, f_T`$ ($`f_t`$ with parameters
+$`R_t, s_t`$), all states $`x_1, \ldots, x_T`$ can be computed in parallel:
 
-1. **Prefix compose** — compute, for each position t, the MinMax map
-   Fₜ = fₜ ∘ fₜ₋₁ ∘ … ∘ f₁ that maps x₀ to xₜ, using composition closure.
-   The current implementation uses the Hillis–Steele parallel prefix scan,
-   with depth O(log T) and work O(T log T) for T the sequence length (a
-   work-efficient scan would need only O(T) work, at about twice the depth).
+1. **Prefix compose** — compute, for each position $`t`$, the MinMax map
+   $`F_t = f_t \circ f_{t-1} \circ \cdots \circ f_1`$ that maps $`x_0`$ to $`x_t`$,
+   using composition closure. The current implementation uses the
+   Hillis–Steele parallel prefix scan, with depth $`O(\log T)`$ and work
+   $`O(T \log T)`$ for $`T`$ the sequence length (a work-efficient scan would
+   need only $`O(T)`$ work, at about twice the depth).
 
-2. **Batch apply** — evaluate every prefix map on x₀ simultaneously:
-   xₜ = Fₜ(x₀).
+2. **Batch apply** — evaluate every prefix map on $`x_0`$ simultaneously:
+   $`x_t = F_t(x_0)`$.
 
 For scalar-state neurons the scan is element-wise (`minmax_scan.all_states`);
-for d > 1 it composes d × d matrices (`minmax_scan.all_states_matrix`), with
-the neurons of a group folded into the batch axis, so every composition costs
-O(d³).
+for $`d > 1`$ it composes $`d \times d`$ matrices (`minmax_scan.all_states_matrix`),
+with the neurons of a group folded into the batch axis, so every composition
+costs $`O(d^3)`$.
 
 At inference time (token-by-token generation) the recurrence runs
 sequentially as a standard RNN with constant cost per step and a state of
 fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
-over chunks of k steps and the recurrence across chunks — depth
-O((T/k) · log k), work O(T log k).
+over chunks of $`k`$ steps and the recurrence across chunks — depth
+$`O((T/k) \cdot \log k)`$, work $`O(T \log k)`$.
 
 ---
 
@@ -181,7 +189,7 @@ MinMaxRNC_LM
 ### MinMax Neuron Groups
 
 `MinMaxNeuronGroup` implements `num_neurons` neurons with the same state
-dimension d, fed the same input. It projects the input to sₜ and Rₜ, runs one
+dimension $`d`$, fed the same input. It projects the input to $`s_t`$ and $`R_t`$, runs one
 batched parallel scan for all its neurons, and projects the resulting states
 back to the residual-stream dimension; the neurons' outputs are summed
 through a single `Linear(num_neurons·d, d_model)`. This is exactly equivalent
@@ -195,7 +203,7 @@ Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of
 `MinMaxNeuronConfig.d_state` scalar-state neurons, which is how the layer
 holds the `scalar_neurons` shorthand.
 
-Learnable parameters: Wₛ, Wᵣ, Wₒ (and optionally Wᵍ, x₀).
+Learnable parameters: $`W_s`$, $`W_r`$, $`W_o`$ (and optionally $`W_g`$, $`x_0`$).
 
 ### MinMax Layer
 
@@ -224,16 +232,19 @@ neuron integrates information over arbitrarily long ranges via the recurrence.
 
 ### Convolution Variants
 
-**BasicConv** (default) — a learned linear projection that concatenates [uₜ₋₁, uₜ]
-and maps back to Rᴰ, giving more expressive local mixing at the cost of 2× the
+**BasicConv** (default) — a learned linear projection that concatenates $`[u_{t-1}, u_t]`$
+and maps back to $`ℝ^D`$, giving more expressive local mixing at the cost of 2× the
 parameters.
 
-**GatedConv** — a learned per-feature scalar gate g ∈ Rᴰ interpolates
+**GatedConv** — a learned per-feature scalar gate $`g \in ℝ^D`$ interpolates
 between the previous and current token:
 
+```math
+\mathrm{out}_t = \sigma(g) * u_{t-1} + (1 - \sigma(g)) * u_t
 ```
-outₜ = σ(g) ⊙ uₜ₋₁ + (1 − σ(g)) ⊙ uₜ
-```
+
+where $`*`$ is the element-wise product: each feature mixes the previous and
+the current token with its own weight $`\sigma(g_i)`$.
 
 ### MinMax RNC
 
@@ -269,7 +280,7 @@ All architecture hyperparameters are specified through a single flat
 | `ffn_dropout` | float | `0.1` | Dropout inside the FFN |
 | `ffn_init` | str | `'scaled'` | FFN init: `'basic'` (PyTorch default) or `'scaled'` (small\_init + wang\_init) |
 | `output_gate` | bool | `True` | Gate the neuron output by a learned projection of the input |
-| `train_init` | bool | `False` | Make the initial hidden state x₀ a learned parameter |
+| `train_init` | bool | `False` | Make the initial hidden state $`x_0`$ a learned parameter |
 | `neuron_dropout` | float | `0.0` | Dropout on the neuron input |
 | `s_r_init` | str | `'small_init'` | Init scheme for s and r projections: `'small_init'`, `'kaiming'`, or `'asymmetric'` |
 | `conv_type` | str | `'basic'` | `'gated'` (scalar gate) or `'basic'` (linear mix) |
@@ -291,7 +302,7 @@ construction is unchanged.
 | `backbone` | MinMaxRNCConfig | — | Backbone configuration |
 | `head_dropout` | float | `0.0` | Dropout before the LM head |
 | `tie_weights` | bool | `True` | Share embedding and LM-head weights |
-| `output_gate` | bool | `True` | Gate each neuron output by σ(W_g u); overrides `backbone.output_gate` |
+| `output_gate` | bool | `True` | Gate each neuron output by $`\sigma(W_g \cdot u)`$; overrides `backbone.output_gate` |
 | `conv_type` | `'basic'` \| `'gated'` | `'basic'` | Short-range conv variant; overrides `backbone.conv_type` |
 | `ffn_dropout` | float | `0.1` | Dropout inside the FFN of every layer (except the first, which uses `backbone.prelayers_dropout`); overrides `backbone.ffn_dropout` |
 
@@ -327,7 +338,7 @@ model. Loss scaling for fp16 (`torch.amp.GradScaler`) stays with the caller.
 | Value | Scan inputs | Autocast during scan | Carried state |
 |---|---|---|---|
 | `'ambient'` | as they arrive (no casting) | unchanged | whatever the scan produced |
-| `'fp32'` / `'bf16'` / `'fp16'` | cast to that dtype (Rₜ is also *built* in it) | disabled | that dtype |
+| `'fp32'` / `'bf16'` / `'fp16'` | cast to that dtype | disabled | that dtype |
 
 With a pinned value, the scan's outputs are cast back to the ambient compute
 dtype before the output gate and projection.
@@ -351,36 +362,36 @@ to fp32 — mixed and implicit. Pinning makes the choice explicit:
 
 ## Initialisers
 
-Both functions initialise by sampling p ~ N(0, σ²); the table gives σ.
+Both functions initialise by sampling $`p \sim \mathcal{N}(0, \sigma^2)`$; the table gives $`\sigma`$.
 
-| Function | σ | Paper |
+| Function | $`\sigma`$ | Paper |
 |---|---|---|
 | `small_init_init_(p, dim)` | √(2 / (5·dim)) | Nguyen & Salazar, IWSLT 2019 |
 | `wang_init_(p, dim, N)` | 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
 
 `small_init_` is applied to all **input-side** projections: token embedding,
-LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ,
-and output-gate Wᵍ projections.  It keeps activations small at initialisation
+LM head (when untied), BasicConv, FFN up-projection, and the neuron $`W_s`$, $`W_r`$,
+and output-gate $`W_g`$ projections.  It keeps activations small at initialisation
 in deep networks.
 
 `wang_init_` is applied to the two **residual output** projections: the
-neuron output Wₒ and the FFN down-projection.  It additionally divides by N
+neuron output $`W_o`$ and the FFN down-projection.  It additionally divides by N
 (number of residual blocks) so the total variance contributed by all residual
 branches to the stream stays O(1/N) regardless of depth — following the GPT-2
 scaled-init strategy.
 
 ### s and r Projection Initialisation
 
-The `s_r_init` config field selects the initialisation scheme for the Wₛ and Wᵣ projections
-(Wᵣ produces Rₜ: one entry per neuron for scalar-state neurons, d² per neuron otherwise).
+The `s_r_init` config field selects the initialisation scheme for the $`W_s`$ and $`W_r`$ projections
+($`W_r`$ produces $`R_t`$: one entry per neuron for scalar-state neurons, $`d^2`$ per neuron otherwise).
 
-| Scheme | Wₛ weights | Wᵣ weights | bₛ | bᵣ |
+| Scheme | $`W_s`$ weights | $`W_r`$ weights | $`b_s`$ | $`b_r`$ |
 |---|---|---|---|---|
 | `'small_init'` | `small_init_` | `small_init_` | 0 | 0 |
 | `'kaiming'` | Kaiming uniform (a=√5) | Kaiming uniform (a=√5) | 0 | 0 |
 | `'asymmetric'` | Kaiming uniform (a=√5) | `small_init_` | +1.0 | 0 |
 
-The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with x₀ = 0 and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting bₛ = +1.0 ensures s > 0 at initialisation so writes happen from the first token; keeping Wᵣ small prevents r from immediately over-writing the written values.
+The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with $`x_0 = 0`$ and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting $`b_s = +1.0`$ ensures $`s > 0`$ at initialisation so writes happen from the first token; keeping $`W_r`$ small prevents r from immediately over-writing the written values.
 
 ---
 
@@ -388,10 +399,11 @@ The **asymmetric** scheme addresses an initialisation dead zone, seen most easil
 
 | Class | Formula | Paper |
 |---|---|---|
-| `FeedForward` | σ(W₁x) → W₂ | Vaswani et al., NeurIPS 2017 |
-| `GatedFeedForward` | W₂(σ(gate) ⊙ value), where [gate \| value] = W₁x | Dauphin et al., ICML 2017; Shazeer 2020 |
+| `FeedForward` | $`W_2 \cdot \phi(W_1 \cdot x)`$ | Vaswani et al., NeurIPS 2017 |
+| `GatedFeedForward` | $`W_2 \cdot (\phi(\mathrm{gate}) * \mathrm{value})`$, where $`[\mathrm{gate}; \mathrm{value}] = W_1 \cdot x`$ | Dauphin et al., ICML 2017; Shazeer 2020 |
 
-The gated variant is the default (`ffn_type='gated'`).  With `act_fn='relu'`
+Here $`\phi`$ is the activation selected by `ffn_act_fn`, $`\cdot`$ matrix
+multiplication and $`*`$ the element-wise product. The gated variant is the default (`ffn_type='gated'`).  With `act_fn='relu'`
 it is **ReGLU**; with `act_fn='swish'` it is **SwiGLU**.
 
 ---

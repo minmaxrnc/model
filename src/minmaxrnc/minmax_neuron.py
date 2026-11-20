@@ -123,7 +123,8 @@ class MinMaxNeuronGroupConfig:
         If False (default), x_0 is fixed at zero.
     output_gate : bool
         If True, the output is element-wise multiplied by a sigmoid-gated
-        projection of the input before the final linear: y = W_o(x ⊙ σ(W_g u)).
+        projection of the input before the final linear: y = W_o · (x * σ(W_g · u)),
+        with · matrix multiplication and * the element-wise product.
     s_r_init : 'small_init' | 'kaiming' | 'asymmetric'
         Initialisation scheme for the s and r (R_t) input projections.
         'small_init' (default) — normal with std = sqrt(2/(5·d_model)),
@@ -197,8 +198,8 @@ class MinMaxNeuronGroup(nn.Module):
 
     Output projection (summed over the K neurons):
 
-        y_t = W_o x_t                      (output_gate=False)
-        y_t = W_o (x_t ⊙ σ(W_g u_t))       (output_gate=True)
+        y_t = W_o · x_t                        (output_gate=False)
+        y_t = W_o · (x_t * σ(W_g · u_t))       (output_gate=True; · matrix product, * element-wise)
 
     with x_t ∈ R^{K·d} the concatenated states — identical to summing per-neuron
     projections.

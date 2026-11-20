@@ -27,7 +27,7 @@ class MinMaxRNCLMConfig:
         embedding matrix, halving those parameters and acting as a regulariser.
     output_gate : bool
         If True (default), each neuron's output is element-wise multiplied by
-        σ(W_g u) before the final projection, so the gate starts near 0.5
+        σ(W_g · u) before the final projection, so the gate starts near 0.5
         (fully open) and gradient flows freely from the start.
         Overrides backbone.output_gate when set.
     conv_type : 'basic' | 'gated'
