@@ -124,13 +124,16 @@ f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
 ```
 
 We can see it has two regimes:
+
 1. When $`r \ge s`$, the map is piecewise affine — it is constant in two regions of the state space,
    and identity in the third region:
-  | Input             | Output       | Interpretation                       |
-  |---|---|---|
-  | $`x < s`$         | $`f(x) = s`$ | constant $`s`$                       |
-  | $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state unchanged |
-  | $`x > r`$         | $`f(x) = r`$ | constant $`r`$                       |
+
+| Input             | Output       | Interpretation                       |
+|---|---|---|
+| $`x < s`$         | $`f(x) = s`$ | constant $`s`$                       |
+| $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state unchanged |
+| $`x > r`$         | $`f(x) = r`$ | constant $`r`$                       |
+
 2. When $`r < s`$, the map is the constant map $`f(x) = s`$ over the entire state space.
 
 
