@@ -8,30 +8,89 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 
+
 ## Mathematical Foundation
 
 **Notation.** $`\oplus`$ and $`\otimes`$ are the MinMax operations defined below;
 $`\cdot`$ is ordinary (matrix) multiplication; $`*`$ is the element-wise
 (Hadamard) product of vectors; $`\sigma`$ is the logistic sigmoid.
 
+
 ### The MinMax Algebra
 
-The MinMax algebra replaces addition and multiplication of real numbers with
-max and min:
+The MinMax algebra replaces addition and multiplication of real numbers with max and min:
 
 | Operation | Definition |
 |---|---|
-| MinMax "addition" | $`a \oplus b = \mathrm{max}(a, b)`$ |
-| MinMax "multiplication" | $`a \otimes b = \mathrm{min}(a, b)`$ |
+| MinMax 'addition' | $`a \oplus b = \mathrm{max}(a, b)`$ |
+| MinMax 'multiplication' | $`a \otimes b = \mathrm{min}(a, b)`$ |
 
-(the (max,min) semiring). Both operations extend to vectors and matrices in
-the usual way, with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\times`$:
+Both operations extend to vectors and matrices in the usual way, 
+with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\times`$:
 
 | Operation | Definition |
 |---|---|
-| vector "sum" | $`(x \oplus y)_i = \mathrm{max}(x_i, y_i)`$ |
-| matrix-vector "product" | $`(R \otimes x)_i = \mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$ |
-| matrix-matrix "product" | $`(R \otimes Q)_{ik} = \mathrm{max}_j\, \mathrm{min}(R_{ij}, Q_{jk})`$ |
+| vector 'sum' | $`(x \oplus y)_i = \mathrm{max}(x_i, y_i)`$ |
+| matrix-vector 'product' | $`(R \otimes x)_i=\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$ |
+| matrix-matrix 'product' | $`(R \otimes R')_{ik}=\mathrm{max}_j\, \mathrm{min}(R_{ij}, R'_{jk})`$ |
+
+
+### MinMax Recurrence
+
+A MinMax neuron with state dimension $`d`$ maintains a hidden state $`x_t \in ℝ^d`$,
+obtained by updating the previous state by a MinMax affine map whose parameters are computed from the
+current input $`u_t \in ℝ^m`$:
+
+```math
+x_t = (R_t \otimes x_{t-1}) \oplus s_t
+```
+
+where both parameters are affine projections of the input:
+
+| Parameter | Dimension | Name | Definition |
+|---|---|---|---|
+| $`R_t`$ |$`d \times d`$ | Reset matrix | $`\mathtt{reshape}(W_r \cdot u_t, (d, d))`$ |
+| $`s_t`$ |$`d`$          | Set vector   | $`W_s \cdot u_t`$                           |
+
+*Note:* Each entry of $`R_t`$ and $`s_t`$ is given by a linear function of $`u_t`$ independently of
+any other entry. There is no immediate reason to adopt parametrisations that impose constraints on
+the entries — in contrast to Linear RNNs where it is crucial to adopt parametrisations ensuring
+properties such as non-expansiveness.
+
+**Special case: Scalar-state neurons ($`d = 1`$).** States $`x_t`$ are scalar, and so are resets 
+$`R_t = r_t`$ and sets $`s_t`$. The recurrence admits the form
+
+```math
+x_{t+1} = \mathrm{max}\bigl(\mathrm{min}(r_{t+1}, x_t), s_{t+1}\bigr)
+```
+
+and the reset and set parameters can be more easily interpreted:
+
+| Parameter | Definition | Role |
+|---|---|---|
+| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — reset signal / forget gate |
+| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — set signal / write value |
+
+This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
+name `d_state`) gives every layer $`N`$ scalar-state neurons, i.e. a state
+$`x_t \in ℝ^N`$ updated element-wise. Scalar-state neurons are evaluated with a
+dedicated element-wise scan, so their cost per step is $`O(1)`$ per neuron.
+Conversely, a $`d \times d`$ matrix whose off-diagonal entries are $`-\infty`$
+decouples the coordinates into $`d`$ scalar-state neurons.
+
+**Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
+of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
+permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
+needs but typically small; layers scale by having more neurons
+(`num_neurons`) and more neuron groups rather than larger $`d`$.
+
+**Output.** Each neuron's state is projected back to the input space, and
+the outputs of all neurons in a layer are summed:
+
+| `output_gate` | Output |
+|---|---|
+| `False` | $`y_t = W_o \cdot x_t`$ |
+| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t))`$ |
 
 ### The MinMax Map
 
@@ -73,7 +132,7 @@ distributes over $`\oplus`$:
 ```math
 \begin{aligned}
 f_2(f_1(x)) = (R \otimes x) \oplus s, 
-\qquad \text{where} 
+\qquad \text{where} \qquad
 R = R_2 \otimes R_1,
 \quad
 s = (R_2 \otimes s_1) \oplus s_2.
@@ -87,60 +146,6 @@ This closure property is what makes the parallel scan possible: instead of
 applying $`f_1, f_2, \ldots, f_T`$ one by one, all prefix compositions can be
 computed simultaneously in $`O(\log T)`$ depth.
 
-### The MinMax Recurrence
-
-A MinMax neuron with state dimension $`d`$ maintains a hidden state $`x_t \in ℝ^d`$,
-updated at every step by a MinMax map whose parameters are computed from the
-current input $`u_{t+1} \in ℝ^m`$:
-
-```math
-x_{t+1} = (R_{t+1} \otimes x_t) \oplus s_{t+1}
-```
-
-where both parameters are affine projections of the input:
-
-| Parameter | Definition | Role |
-|---|---|---|
-| $`R_t`$ | $`\mathtt{reshape}(W_r \cdot u_t, (d, d))`$ | $`d^2`$ outputs, reshaped to a matrix |
-| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — set value / inject signal |
-
-$`R_t`$ is unconstrained: every entry is an independent linear function of $`u_t`$,
-and no bounding is needed for stability, since the recurrence only ever
-*selects* values — every entry of a composed $`R_t`$, and of $`x_t`$ itself, is one
-of the per-step values, never an accumulation of them.
-
-**Scalar-state neurons ($`d = 1`$).** With $`d = 1`$, $`R_t = r_t`$ is a scalar and the
-recurrence is the clamp above:
-
-```math
-x_{t+1} = \mathrm{max}(\mathrm{min}(r_{t+1}, x_t), s_{t+1})
-```
-
-| Parameter | Definition | Role |
-|---|---|---|
-| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — gate / reset signal |
-| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — write / inject signal |
-
-This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
-name `d_state`) gives every layer $`N`$ scalar-state neurons, i.e. a state
-$`x_t \in ℝ^N`$ updated element-wise. Scalar-state neurons are evaluated with a
-dedicated element-wise scan, so their cost per step is $`O(1)`$ per neuron.
-Conversely, a $`d \times d`$ matrix whose off-diagonal entries are $`-\infty`$
-decouples the coordinates into $`d`$ scalar-state neurons.
-
-**Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
-of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
-permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
-needs but typically small; layers scale by having more neurons
-(`num_neurons`) and more neuron groups rather than larger $`d`$.
-
-**Output.** Each neuron's state is projected back to the input space, and
-the outputs of all neurons in a layer are summed:
-
-| `output_gate` | Output |
-|---|---|
-| `False` | $`y_t = W_o \cdot x_t`$ |
-| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t))`$ |
 
 ### Parallel Computation via Prefix Scan
 
