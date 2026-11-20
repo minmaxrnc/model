@@ -12,8 +12,8 @@ the symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or
 the symbol '$`*`$' denotes element-wise (Hadamard) product of vectors; 
 the symbol '$`\sigma`$' denotes the logistic sigmoid.
 
-The module tree of `MinMaxRNC_LM`, as `attribute: Type` (the convention of PyTorch's
-`print(model)`), listed in data-flow order. `MinMaxRNC_LM` is a subclass of `MinMaxRNC`, the
+The module tree of [`MinMaxRNC_LM`](../src/minmaxrnc/minmax_rnc_lm.py), as `attribute: Type` (the convention of PyTorch's
+`print(model)`), listed in data-flow order. `MinMaxRNC_LM` is a subclass of [`MinMaxRNC`](../src/minmaxrnc/minmax_rnc.py), the
 backbone: the backbone has the same tree without `token_emb`, `head_drop` and `lm_head`.
 
 ```
@@ -34,61 +34,102 @@ MinMaxRNC_LM
 └── lm_head:              Linear(d_model, vocab_size, bias=False), weights tied to token_emb by default
 ```
 
-In each layer, `neuron` and every member of `neuron_groups` read the same input,
-`norm_neuron(...)`, and their outputs are summed (see [MinMax Layer](#minmax-layer)).
+The package's classes in the tree are defined in:
+
+| Class | Source file |
+|---|---|
+| `MinMaxRNC_LM` | [`minmax_rnc_lm.py`](../src/minmaxrnc/minmax_rnc_lm.py) |
+| `MinMaxRNC` | [`minmax_rnc.py`](../src/minmaxrnc/minmax_rnc.py) |
+| `MinMaxLayer` | [`minmax_layer.py`](../src/minmaxrnc/minmax_layer.py) |
+| `MinMaxNeuronGroup`, `MinMaxNeuron` | [`minmax_neuron.py`](../src/minmaxrnc/minmax_neuron.py) |
+| `BasicConv` | [`modules/basic_conv.py`](../src/minmaxrnc/modules/basic_conv.py) |
+| `GatedConv` | [`modules/gated_conv.py`](../src/minmaxrnc/modules/gated_conv.py) |
+| `FeedForward`, `GatedFeedForward` | [`modules/feedforward.py`](../src/minmaxrnc/modules/feedforward.py) |
+
+The other modules (`Embedding`, `ModuleList`, `LayerNorm`, `RMSNorm`, `Identity`, `Dropout`,
+`Linear`) are PyTorch's.
 
 ## MinMax Neuron Groups
 
-`MinMaxNeuronGroup` implements `num_neurons` neurons with the same state
-dimension $`d`$, fed the same input. It projects the input to $`s_t`$ and $`R_t`$, runs one
-batched parallel scan for all its neurons, and projects the resulting states
-back to the residual-stream dimension; the neurons' outputs are summed
-through a single `Linear(num_neurons·d, d_model)`. This is exactly equivalent
-to `num_neurons` separate neurons whose outputs are summed; only the compute
-is batched.
+[`MinMaxNeuronGroup`](../src/minmaxrnc/minmax_neuron.py) provides $`K`$ = `num_neurons` neurons with the same state
+dimension $`d`$, fed the same input $`u_t`$. Each neuron $`k`$ has its own parameters
+$`R_t^{(k)} \in ℝ^{d \times d}`$ and $`s_t^{(k)} \in ℝ^d`$, and its own state
+$`x_t^{(k)} \in ℝ^d`$. The group computes them for all its neurons at once:
 
-The group's state is the flat vector of its `num_neurons · d` coordinates
-(neuron-major). For d = 1 the group is evaluated with the element-wise scan
-and every parameter, tensor and operation is exactly that of 0.3.0's MinMax
-Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of
-`MinMaxNeuronConfig.d_state` scalar-state neurons, which is how the layer
-holds the `scalar_neurons` shorthand.
+1. two linear layers project $`u_t`$ to the parameters of every neuron: 
+   one linear layer `Linear(d_model, K·d²)` produces a vector `r` of dimension
+   $`K \cdot d^2`$, that is split into the $`K`$ matrices $`R_t^{(k)}`$;
+   and the other linear layer `Linear(d_model, K·d)` produces a vector `s` of dimension
+   $`K \cdot d`$, that is split into the $`K`$ vectors $`s_t^{(k)}`$;
+2. the states of all $`K`$ neurons are updated together, as one batched computation;
+3. the states are projected back to the residual-stream dimension and summed over the neurons, by
+   a single `Linear(K·d, d_model)` applied to the concatenated states.
 
-Learnable parameters: weights $`W_s`$, $`W_r`$, $`W_o`$ and biases $`b_s`$, $`b_r`$, $`b_o`$; with the output
-gate also $`W_g`$, $`b_g`$; with `train_init`, the initial state $`x_0`$.
+This is exactly equivalent to $`K`$ separate neurons whose outputs are summed ─ 
+only the compute is batched.
+
+The states are updated with the parallel prefix-scan over chunks of `unroll_steps` steps, carrying
+the state from one chunk to the next: 
+one scan over the whole sequence when `unroll_steps` equals its length, and a plain step-by-step
+recurrence when `unroll_steps = 1`, e.g. for token-by-token generation
+(see [Parallel computation](foundations.md#parallel-computation-via-prefix-scan)).
+
+The group's state is the flat vector of its `num_neurons · d` coordinates (neuron-major). 
+For d = 1 the group is evaluated with the element-wise scan and every parameter, tensor and
+operation is exactly that of 0.3.0's MinMax Neuron. 
+[`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py) (the 0.3.0 class) is the group of [`MinMaxNeuronConfig.d_state`](../src/minmaxrnc/minmax_neuron.py) scalar-state neurons,
+which is how the layer holds the `scalar_neurons` shorthand.
+
+**Learnable parameters:** weights $`W_\mathrm{s}`$, $`W_\mathrm{r}`$, $`W_\mathrm{o}`$ and biases
+$`b_\mathrm{s}`$, $`b_\mathrm{r}`$, $`b_\mathrm{o}`$; with the output gate also $`W_\mathrm{g}`$,
+$`b_\mathrm{g}`$; with `train_init`, the initial state $`x_0`$.
+
 
 ## MinMax Layer
 
-One residual block. The data flow uses pre-norm; only the neuron output is
-added back to the residual stream:
+One residual block. The data flow uses pre-norm; 
+only the neurons' output is added back to the residual stream:
 
 ```
-conv   = Conv( norm(u) )
-ffn    = FFN( norm(u + conv) )
-neuron = Neuron( norm(u + conv + ffn) )
-output = u + neuron
+conv_in   = ConvNorm(u)
+conv      = Conv(conv_in)
+ffn_in    = FFNNorm(u + conv)
+ffn       = FFN(ffn_in)
+neuron_in = NeuronNorm(u + conv + ffn)
+neuron    = Sum( NeuronGroup(neuron_in) for each NeuronGroup )
+output    = u + neuron
 ```
 
-where `Neuron` is the sum of the outputs of all the layer's neuron groups,
-all reading the same normalised input: the `scalar_neurons` shorthand group
-(if present, registered as `neuron` for compatibility with 0.3.0) and each
-group of `neurons` (registered in `neuron_groups`). Each group's output
+where operations are capitalised and variables are lowercase:
+
+| Operation | What it is | Described in |
+|---|---|---|
+| `ConvNorm`, `FFNNorm`, `NeuronNorm` | pre-norms (`norm_conv`, `norm_ffn`, `norm_neuron` in the tree above): `LayerNorm` (default), `RMSNorm`, or none, set by `norm` | [Configuration Reference](configuration.md#configuration-reference) |
+| `Conv` | mixing of the current input with the previous one: `BasicConv` (default) or `GatedConv`, set by `conv_type` | [Convolution Variants](#convolution-variants) |
+| `FFN` | feature-mixing feed-forward network: `GatedFeedForward` (default) or `FeedForward`, set by `ffn_type` | [Feed-forward Variants](configuration.md#feed-forward-variants) |
+| `NeuronGroup` | a group of MinMax neurons, evaluated as described above | [MinMax Neuron Groups](#minmax-neuron-groups) |
+
+The sum ranges over all the layer's neuron groups — the group of the `scalar_neurons` (it is
+`neuron` in the tree above) and each group of `neurons` (`neuron_groups`) — which all read the same
+normalised input `neuron_in`. Recurrent states are left out: the convolution and every neuron
+group also take the state from the previous chunk and return the updated one. Each group's output
 projection is initialised with `wang_init_` using the layer's total state
-size Σ num_neurons · d as `dim`, so the layer's overall contribution to the
-residual stream stays O(1) however its state is split across groups.
+dimension, so the layer's overall contribution to the residual stream stays O(1) however its state
+is split across groups.
 
-Conv and FFN outputs are used to compute a richer input for the neuron but
-are not independently added to the residual stream.  The convolution provides
-short-range context (one previous token).  The FFN mixes features.  The
-neuron integrates information over arbitrarily long ranges via the recurrence.
+`Conv` and `FFN` outputs are used to compute a richer input for the neuron but are not independently
+added to the residual stream. The convolution provides short-range context (one previous input).  
+The `FFN` mixes features. The neurons integrate information over arbitrarily long ranges as they
+maintain a state. 
+
 
 ## Convolution Variants
 
-**BasicConv** (default) — a learned affine projection of the concatenated previous and current
+**[BasicConv](../src/minmaxrnc/modules/basic_conv.py)** (default) — a learned affine projection of the concatenated previous and current
 token, $`\mathrm{out}_t = W_c \cdot [u_{t-1}; u_t] + b_c`$, mapping back to $`ℝ^D`$; more expressive
 local mixing at the cost of 2× the parameters.
 
-**GatedConv** — a learned per-feature scalar gate $`g \in ℝ^D`$ interpolates
+**[GatedConv](../src/minmaxrnc/modules/gated_conv.py)** — a learned per-feature scalar gate $`g \in ℝ^D`$ interpolates
 between the previous and current token:
 
 ```math

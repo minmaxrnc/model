@@ -176,8 +176,9 @@ model = MinMaxRNC(cfg)
 Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1)` or the
 equivalent tuple/list (handy for YAML configs).
 `scalar_neurons = N` is shorthand for the group
-`NeuronGroup(d_state=1, num_neurons=N)`: `N` scalar-state neurons. Each group
-runs as a single batched parallel scan, and all neuron outputs of a layer are
+`NeuronGroup(d_state=1, num_neurons=N)`: `N` scalar-state neurons. The neurons
+of a group are evaluated together, as one batched computation — in parallel or
+step by step, as set by `unroll_steps` — and all neuron outputs of a layer are
 summed.
 
 Things to know:
