@@ -7,11 +7,14 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 [Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md)
 
-See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
+See [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) 
+and 
+[arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 
-**Notation.** $`\oplus`$ and $`\otimes`$ are the MinMax operations defined below;
-$`\cdot`$ is ordinary (matrix) multiplication; $`*`$ is the element-wise
-(Hadamard) product of vectors; $`\sigma`$ is the logistic sigmoid.
+**Notation.** 
+The symbol $`\cdot`$ denotes ordinary multiplication over scalars, vectors, or matrices; 
+the symbol $`*`$ denotes element-wise (Hadamard) product of vectors; 
+the symbol $`\sigma`$ denotes the logistic sigmoid.
 
 
 ## The MinMax Algebra

@@ -15,6 +15,7 @@ of aten operations, and the preset parameter counts.
 
 import inspect
 import os
+import platform
 import unittest
 import warnings
 
@@ -53,6 +54,32 @@ def _same_torch_minor(version_a: str, version_b: str) -> bool:
     return version_a.split('.')[:2] == version_b.split('.')[:2]
 
 
+def _same_environment() -> bool:
+    """True when running where the fixture was recorded: same torch version, OS
+    and CPU architecture. Only there are seeded initialisation and fp32/bf16
+    kernels expected to reproduce bit for bit; PyTorch does not guarantee it
+    across versions or platforms."""
+    return (
+        torch.__version__ == META['torch_version']
+        and platform.system() == META.get('platform_system')
+        and platform.machine() == META.get('platform_machine')
+    )
+
+
+SAME_ENV = _same_environment()
+ENV_NOTE = (
+    f"fixture recorded with torch {META['torch_version']} on "
+    f"{META.get('platform_system')}/{META.get('platform_machine')}; running torch "
+    f"{torch.__version__} on {platform.system()}/{platform.machine()}"
+)
+# Elsewhere: tolerances for float rounding of a different BLAS / random-number
+# implementation (fp32) and of different bf16 kernels (bf16, ~3 significant
+# digits). The exact same-environment comparison of 0.3.0 against 0.4.0 is
+# done by the validation notebook, which runs both versions side by side.
+FP32_TOL = dict(atol=1e-6, rtol=1e-5) if SAME_ENV else dict(atol=1e-4, rtol=1e-4)
+BF16_TOL = dict(atol=1e-6, rtol=1e-5) if SAME_ENV else dict(atol=5e-2, rtol=5e-2)
+
+
 def _assert_state_equal(test, actual, expected, atol=1e-6, rtol=1e-5):
     """Compare recurrent states: same nested structure, same keys, close values."""
     test.assertEqual(type(actual), type(expected))
@@ -78,14 +105,20 @@ class TestV030ReferenceBehaviour(unittest.TestCase):
             with self.subTest(config=name):
                 yield name, rec
 
-    def test_seeded_init_is_bitwise_identical(self):
-        """Same seed → same parameters, same names, same order as 0.3.0."""
+    def test_seeded_init_matches_v030(self):
+        """Same seed → same parameters, names and order as 0.3.0: bit for bit
+        in the fixture's environment, up to float rounding elsewhere."""
         for _, rec in self._each():
             model = _build(rec['kind'], rec['kwargs'])
             sd = model.state_dict()
             self.assertEqual(list(sd.keys()), list(rec['state_dict'].keys()))
             for k, v in rec['state_dict'].items():
-                self.assertTrue(torch.equal(sd[k], v), f"parameter {k} differs from 0.3.0")
+                self.assertEqual(sd[k].shape, v.shape, k)
+                if SAME_ENV:
+                    self.assertTrue(torch.equal(sd[k], v), f"parameter {k} differs from 0.3.0")
+                else:
+                    torch.testing.assert_close(sd[k], v, atol=1e-6, rtol=1e-5,
+                                               msg=lambda m: f"parameter {k}: {m} ({ENV_NOTE})")
 
     def test_parameter_count_unchanged(self):
         for _, rec in self._each():
@@ -102,36 +135,40 @@ class TestV030ReferenceBehaviour(unittest.TestCase):
             self.assertEqual(result.missing_keys, [])
             self.assertEqual(result.unexpected_keys, [])
 
+    def _model_with_v030_weights(self, rec):
+        """The recorded 0.3.0 weights, so that only the computation is compared."""
+        model = _build(rec['kind'], rec['kwargs']).eval()
+        model.load_state_dict(rec['state_dict'], strict=True)
+        return model
+
     def test_fp32_outputs_and_state_match(self):
         for _, rec in self._each():
-            model = _build(rec['kind'], rec['kwargs']).eval()
+            model = self._model_with_v030_weights(rec)
             with torch.no_grad():
                 y, state = model(rec['input'], META['unroll'], return_state=True)
-            torch.testing.assert_close(y, rec['output'], atol=1e-6, rtol=1e-5)
-            _assert_state_equal(self, state, rec['state'])
+            torch.testing.assert_close(y, rec['output'], **FP32_TOL)
+            _assert_state_equal(self, state, rec['state'], **FP32_TOL)
 
     def test_outer_bf16_autocast_outputs_and_state_match(self):
         """Default scan_dtype='ambient' / amp_dtype=None leave the 0.3.0
         mixed-precision behaviour under a caller's autocast untouched,
         including the dtype of the carried state."""
         for _, rec in self._each():
-            model = _build(rec['kind'], rec['kwargs']).eval()
+            model = self._model_with_v030_weights(rec)
             with torch.no_grad(), torch.autocast(device_type='cpu', dtype=torch.bfloat16):
                 y, state = model(rec['input'], META['unroll'], return_state=True)
             self.assertEqual(y.dtype, rec['output_bf16'].dtype)
-            torch.testing.assert_close(y, rec['output_bf16'], atol=1e-6, rtol=1e-5)
-            _assert_state_equal(self, state, rec['state_bf16'])
+            torch.testing.assert_close(y, rec['output_bf16'], **BF16_TOL)
+            _assert_state_equal(self, state, rec['state_bf16'], **BF16_TOL)
 
-    def test_loaded_checkpoint_reproduces_outputs(self):
-        """Loading the recorded weights (rather than re-seeding) also
-        reproduces the 0.3.0 outputs."""
+    def test_seeded_model_reproduces_outputs(self):
+        """End to end: a model built from the same seed (not loaded from the
+        recorded weights) reproduces the 0.3.0 outputs."""
         for _, rec in self._each():
-            torch.manual_seed(0)
             model = _build(rec['kind'], rec['kwargs']).eval()
-            model.load_state_dict(rec['state_dict'])
             with torch.no_grad():
                 y = model(rec['input'], META['unroll'])
-            torch.testing.assert_close(y, rec['output'], atol=1e-6, rtol=1e-5)
+            torch.testing.assert_close(y, rec['output'], **FP32_TOL)
 
     @unittest.skipUnless(
         _same_torch_minor(torch.__version__, META['torch_version']),

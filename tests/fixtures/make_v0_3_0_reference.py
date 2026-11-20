@@ -24,6 +24,7 @@ tests/test_backward_compat.py.
 """
 
 import argparse
+import platform
 import sys
 
 import torch
@@ -128,6 +129,10 @@ def main():
         meta = dict(
             minmaxrnc_version = '0.3.0',
             torch_version     = torch.__version__,
+            # Bitwise reproducibility (seeded init, fp32/bf16 kernels) is only
+            # expected in the same environment; tests compare these.
+            platform_system   = platform.system(),
+            platform_machine  = platform.machine(),
             seed = SEED, input_seed = INPUT_SEED, B = B, T = T, unroll = UNROLL, vocab = VOCAB,
         ),
         configs = records,

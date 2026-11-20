@@ -5,7 +5,11 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 # MinMax Recurrent Neural Cascades (MinMax RNCs) — Documentation
 
-See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
+See [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) 
+and 
+[arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
+
+## Index
 
 - [Mathematical foundation](foundations.md) — the MinMax algebra, the MinMax recurrence for any
   state dimension, composition closure, and the parallel prefix scan.
