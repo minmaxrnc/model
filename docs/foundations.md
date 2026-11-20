@@ -77,13 +77,14 @@ x_t = \mathrm{max}\bigl(\mathrm{min}(r_t, x_{t-1}), s_t\bigr)
 with reset and set given by 
 
 ```math
-r_t = w_\mathrm{r} \cdot u_t + b_\mathrm{r},
-\quad
+r_t = w_\mathrm{r} \cdot u_t + b_\mathrm{r}
+\qquad\text{and}\qquad
 s_t = w_\mathrm{s} \cdot u_t + b_\mathrm{s},
+\qquad\text{ for}\qquad
+w_\mathrm{r}, w_\mathrm{s} \in ℝ^m,
+\quad
+b_\mathrm{r}, b_\mathrm{s} \in ℝ.
 ```
-
-where $`w_\mathrm{r}, w_\mathrm{s} \in ℝ^m`$ and $`b_\mathrm{r}, b_\mathrm{s} \in ℝ`$ are the
-weights and biases, respectively.
 
 `MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ of such neurons. 
 Stacking their states, weights and biases, the layer has states $`x^\mathrm{l}_t \in ℝ^N`$ with 
@@ -92,8 +93,9 @@ Stacking their states, weights and biases, the layer has states $`x^\mathrm{l}_t
 r^\mathrm{l}_t = W^\mathrm{l}_\mathrm{r} \cdot u_t + b^\mathrm{l}_\mathrm{r}
 \qquad\text{and}\qquad
 s^\mathrm{l}_t = W^\mathrm{l}_\mathrm{s} \cdot u_t + b^\mathrm{l}_\mathrm{s}
-\qquad\text{ for}
+\qquad\text{ for}\qquad
 W^\mathrm{l}_\mathrm{r}, W^\mathrm{l}_\mathrm{s} \in ℝ^{N \times m},
+\quad
 b^\mathrm{l}_\mathrm{r}, b^\mathrm{l}_\mathrm{s} \in ℝ^N,
 ```
 
@@ -103,8 +105,8 @@ They are evaluated with a dedicated element-wise scan, so the cost per step is $
 
 ## MinMax Layer's Output
 
-Each neuron's state is projected back to the input space, and the outputs of all neurons in a layer
-are summed:
+Each neuron's state is projected back to the input space, and 
+the outputs of all neurons in a layer are summed:
 
 | `output_gate`  | Output                                                                               |
 |----------------|--------------------------------------------------------------------------------------|
@@ -112,43 +114,47 @@ are summed:
 |`False`         |$`y_t=W_\mathrm{o}\cdot x_t + b_\mathrm{o}`$                                          |
 
 
-## MinMax Recurrence Map
+## MinMax Recurrence Maps
 
 A MinMax Recurrence map on states of dimension $`d`$ is an affine map in the MinMax algebra,
 parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`$:
 
 ```math
 f(x) = (R \otimes x) \oplus s,
-\qquad\text{i.e.}\qquad
+\qquad\text{i.e.,, coordinate-wise,}\qquad
 f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
 
-Every coordinate of $`f(x)`$ is *selected* among the entries of $`x`$, $`R`$ and $`s`$,
-so $`f`$ keeps values bounded and passes them through unchanged.
+Each coordinate $`f(x)_i`$ is *selected* among the coordinates of $`x`$, $`R`$, and $`s`$,
+so $`f`$ keeps values bounded since it passes them through unchanged.
 
-The map can *route* values between coordinates: coordinate $`i`$ can take the value of coordinate
-$`j`$, limited by $`R_{ij}`$ — which is what lets a neuron permute its state.
+The map $`f`$ can *route* state coordinates: each coordinate $`f(x)_i`$ can take the value
+of $`x_j`$ for any chosen $`j`$ under an appropriate choice of $`R_{ij}`$ — which is what lets a
+neuron permute its state.
 
 
-**Scalar case ($`d = 1`$).** With a scalar $`r = R`$, the map is a clamp between
-the lower bound $`s`$ and the upper bound $`r`$:
+### Special case: Scalar MinMax Recurrence Maps ($`d = 1`$)
+
+Every MinMax Recurrence map over scalar states
 
 ```math
-f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
+f(x) = \mathrm{max}(\mathrm{min}(r, x), s) 
+\qquad\text{for}\qquad r,s \in ℝ
 ```
 
-We can see it has two regimes:
+has two regimes:
 
-1. When $`r \ge s`$, the map is piecewise affine — it is constant in two regions of the state space,
-   and identity in the third region:
+1. When  $`r \ge s`$, 
+   the map $`f`$ is a clamp between the lower bound $`s`$ and upper bound $`r`$.
 
-| Input             | Output       | Interpretation                       |
-|---|---|---|
-| $`x < s`$         | $`f(x) = s`$ | constant $`s`$                       |
-| $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state unchanged |
-| $`x > r`$         | $`f(x) = r`$ | constant $`r`$                       |
+| Case              | State update | Interpretation                     |
+|-------------------|--------------|------------------------------------|
+| $`x < s`$         | $`f(x) = s`$ | constant — maps states to $`s`$    |
+| $`s \le x \le r`$ | $`f(x) = x`$ | identity — leaves states unchanged |
+| $`x > r`$         | $`f(x) = r`$ | constant — maps states to $`r`$    |
 
-2. When $`r < s`$, the map is the constant map $`f(x) = s`$ over the entire state space.
+2. When $`r < s`$, 
+   the map $`f`$ is the constant map $`f(x) = s`$ over the entire state space.
 
 
 ## Composition Closure
@@ -159,25 +165,34 @@ because $`\otimes`$ is associative and distributes over $`\oplus`$:
 ```math
 \begin{aligned}
 f_2\bigl(f_1(x)\bigr) = (R \otimes x) \oplus s
-\qquad \text{where} \qquad
+\qquad \text{for} \qquad
 R = R_2 \otimes R_1,
 \quad
 s = (R_2 \otimes s_1) \oplus s_2.
 \end{aligned}
 ```
 
-In the scalar case this reads $`r = \mathrm{min}(r_2, r_1)`$ and
-$`s = \mathrm{max}(\mathrm{min}(r_2, s_1), s_2)`$.
+In the scalar case, the above reads 
+```math
+\begin{aligned}
+f_2\bigl(f_1(x)\bigr) = (r \otimes x) \oplus s
+\qquad \text{for} \qquad
+r = \mathrm{min}(r_2, r_1),
+\quad
+s = \mathrm{max}(\mathrm{min}(r_2, s_1), s_2).
+\end{aligned}
+```
 
-This closure property is what makes the parallel scan possible: instead of
-applying $`f_1, f_2, \ldots, f_T`$ one by one, all prefix compositions can be
-computed simultaneously in $`O(\log T)`$ depth.
+This closure property is what makes the parallel scan possible: 
+instead of applying $`f_1, f_2, \ldots, f_T`$ one by one in sequence, 
+all prefix compositions can be computed simultaneously in parallel with depth $`O(\log T)`$.
 
 
 ## Parallel Computation via Prefix Scan
 
-Given $`x_0`$ and the per-step maps $`f_1, \ldots, f_T`$ ($`f_t`$ with parameters
-$`R_t, s_t`$), all states $`x_1, \ldots, x_T`$ can be computed in parallel:
+Given $`x_0`$ and the per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
+with each $`f_t`$ having parameters $`R_t, s_t`$, 
+all states $`x_1, \ldots, x_T`$ can be computed in parallel:
 
 1. **Prefix compose** — compute, for each position $`t`$, the MinMax map
    $`F_t = f_t \circ f_{t-1} \circ \cdots \circ f_1`$ that maps $`x_0`$ to $`x_t`$,
@@ -186,8 +201,7 @@ $`R_t, s_t`$), all states $`x_1, \ldots, x_T`$ can be computed in parallel:
    $`O(T \log T)`$ for $`T`$ the sequence length (a work-efficient scan would
    need only $`O(T)`$ work, at about twice the depth).
 
-2. **Batch apply** — evaluate every prefix map on $`x_0`$ simultaneously:
-   $`x_t = F_t(x_0)`$.
+2. **Batch apply** — evaluate every prefix map on $`x_0`$ simultaneously: $`x_t = F_t(x_0)`$.
 
 For scalar-state neurons the scan is element-wise (`minmax_scan.all_states`);
 for $`d > 1`$ it composes $`d \times d`$ matrices (`minmax_scan.all_states_matrix`),
@@ -203,3 +217,4 @@ $`O((T/k) \cdot \log k)`$, work $`O(T \log k)`$.
 ## References
 
 - Hillis & Steele (1986). *Data parallel algorithms.* CACM 29(12).
+
