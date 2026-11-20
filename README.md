@@ -5,21 +5,35 @@ expressively powerful, efficiently implementable, and provably not affected by
 vanishing or exploding gradient.
 
 Resources:
+- [Project website](https://minmaxrnc.org/) for an overview, results, and news.
 - [Paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 - [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
 
 
 ## Key properties
 
-- **Perfect memory.** MinMax neurons can store and retain information arbitrarily long (formal
-  expressivity: all group-free functions).
+Four properties for truly long-sequence processing, which existing
+architectures do not combine:
 
-- **Parallel training.** All hidden states across a sequence of length T are
-  computed simultaneously in O(log T) depth, with no sequential bottleneck.
-- **Efficient inference.** Runs as a true RNN: O(1) compute and O(D) memory
-  per token, making it practical for long-context streaming generation.
-- **Stable recurrence.** The MinMax operator is bounded and its
-  gradients cannot vanish or explode through the state path.
+- **Strong expressivity, with long-term memory.** MinMax neurons store and
+  retain information over arbitrarily long ranges, and can realise all
+  fundamental semiautomata, hence all regular languages. A neuron's state
+  dimension matches the degree of the permutation semiautomata it can
+  realise: scalar-state neurons already capture all star-free languages, and
+  [matrix neurons](#matrix-neurons) with larger state dimension go beyond.
+- **Efficient evaluation.** Sequentially, as a true RNN: O(T) time, with
+  constant compute and memory per token — practical for streaming
+  generation. In parallel, via associative composition of MinMax maps: a
+  prefix scan computes all hidden states in O(log T) depth, with no
+  sequential bottleneck in training.
+- **Stability.** States and activations are uniformly bounded, because
+  MinMax operations only *select* values; pseudo-gradients are uniformly
+  bounded and coincide with gradients almost everywhere — independently of
+  sequence length.
+- **Long-range sensitivity.** Over arbitrarily long ranges, the recurrence
+  can propagate state coordinates unchanged or permuted, giving
+  state-to-state pseudo-gradients of unit norm: early inputs keep
+  influencing later outputs.
 
 ## The model
 
@@ -32,7 +46,7 @@ residual connections:
    `x_{t+1} = max(min(r_t, x_t), s_t)` element-wise in parallel via a prefix scan.
    Since 0.4.0 a layer can additionally (or instead) hold groups of
    **matrix MinMax neurons**, `x_{t+1} = max(R_t ⊗ x_t, s_t)` in the
-   (max,min) semiring — see [Matrix neurons](#matrix-neurons-experimental).
+   (max,min) semiring — see [Matrix neurons](#matrix-neurons).
 
 
 ## Installation
@@ -112,7 +126,7 @@ model = MinMaxRNC(cfg)
 | `medium` | 512       | 8          | 512       | ~16.6 M               | ~42.4 M                      |
 | `large`  | 728       | 12         | 1456      | ~75.9 M               | ~112.5 M                     |
 
-### Matrix neurons (experimental)
+### Matrix neurons
 
 New in 0.4.0. Besides the diagonal neuron (`d_state`), every layer can hold
 groups of **matrix MinMax neurons**, whose state transition is a full
