@@ -20,21 +20,23 @@ Resources:
   without corrupting it, and hence it can track states such as "has X happened yet?" or 
   "which phase are we in?" over arbitrarily long sequences. 
   Models trained on short sequences have been evaluated without loss of accuracy on sequences of
-  over a million tokens. (Formally: all star-free languages with scalar-state neurons, up to all
-  regular languages with neurons of larger state dimension)
+  over a million tokens. 
+  (*Formal expressivity:* all star-free languages with scalar-state neurons, up to all regular
+  languages with neurons of larger state dimension)
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in any of the
   following ways. 
-  - In parallel over a whole sequence via parallel scan—*computational cost:* depth $`O(\log(T))`$ 
-  and work $`O(T)`$. 
-  - Step by step via a recurrence—*computational cost:* constant compute and memory per token. 
+  - In parallel over a whole sequence via parallel scan. 
+    (*Computational cost:* depth $`O(\log(T))`$ and work $`O(T)`$)
+  - Step by step via a recurrence. 
+    (*Computational cost:* constant compute and memory per token) 
   - By interleaving parallel and recurrence evaluation: parallel scan over chunks of $`k`$ steps, 
-    with recurrence across chunks—*computational cost:* depth $`O((T/k) \cdot \log(k))`$ 
-    and work $`O(T \cdot \log(k))`$). 
+    with recurrence across chunks. 
     The value of $`k`$ can be set with `unroll_steps`. 
     It is fully parallel when $`k = T`$, and fully recurrent when $`k = 1`$.
     All choices give identical results. 
     Typically one would train and prefill prompts in parallel, then generate token by token, and use
     an intermediate $`k`$ to process sequences too long to scan in one go.
+    (*Computational cost:* depth $`O((T/k) \cdot \log(k))`$ and work $`O(T \cdot \log(k))`$)
 - **Stable by construction.** States, activations, and gradients stay bounded, independently of how
   long the input sequence is, because the recurrence produces states by simply *selecting* scalars
   from the previous state or current inputs (via min and max operations). 
