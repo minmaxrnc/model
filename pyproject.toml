@@ -34,7 +34,7 @@ dependencies = [
 Homepage    = "https://github.com/minmaxrnc/model"
 Repository  = "https://github.com/minmaxrnc/model"
 Issues      = "https://github.com/minmaxrnc/model/issues"
-Documentation = "https://github.com/minmaxrnc/model/blob/main/docs/model.md"
+Documentation = "https://github.com/minmaxrnc/model/tree/main/docs"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -5,7 +5,9 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 # MinMax RNCs — Upgrading from 0.3.0
 
-[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md) · [Upgrading from 0.3.0](upgrading.md)
+[Index](README.md) · [Mathematical foundations](foundations.md) · [Architecture](architecture.md) · [Configuration](configuration.md) · [Numerical precision](precision.md) · [Upgrading from 0.3.0](upgrading.md)
+
+---
 
 0.4.0 is backward compatible with 0.3.0; no code changes are needed. This page collects everything
 that relates 0.4.0 to 0.3.0; see [CHANGELOG.md](../CHANGELOG.md) for the full list of changes.
@@ -13,7 +15,7 @@ that relates 0.4.0 to 0.3.0; see [CHANGELOG.md](../CHANGELOG.md) for the full li
 ## Same API
 
 - Every 0.3.0 class, config field and argument keeps its name, position and meaning, including
-  positional `MinMaxRNCConfig(d_model, n_layers, d_state)`.
+  positional [`MinMaxRNCConfig(d_model, n_layers, d_state)`](../src/minmaxrnc/minmax_rnc.py).
 - The fields new in 0.4.0 (`scalar_neurons`, `neurons`, `recurrence_dtype`, `amp_dtype`) are appended
   after the 0.3.0 fields, so positional construction is unchanged, and their defaults
   (`scalar_neurons=0`, `neurons=()`, `recurrence_dtype=None`, `amp_dtype=None`) reproduce the 0.3.0
@@ -22,8 +24,8 @@ that relates 0.4.0 to 0.3.0; see [CHANGELOG.md](../CHANGELOG.md) for the full li
   neurons: `d_state=N` and `scalar_neurons=N` build exactly the same model; set at most one of
   them. The presets (`small`, `medium`, `large`) still set `d_state`, so `preset.d_state` keeps its
   0.3.0 value; `preset.num_scalar_neurons` gives the count whichever field was used.
-- **`MinMaxNeuron`** is still the class of 0.3.0's MinMax Neuron. With `d_state = N` it is the group
-  of `N` scalar-state neurons, now a special case of `MinMaxNeuronGroup`, which implements neurons
+- **[`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py)** is still the class of 0.3.0's MinMax Neuron. With `d_state = N` it is the group
+  of `N` scalar-state neurons, now a special case of [`MinMaxNeuronGroup`](../src/minmaxrnc/minmax_neuron.py), which implements neurons
   of any state dimension. It is how a layer holds its `scalar_neurons` (attribute `neuron`, the
   0.3.0 name).
 
@@ -48,7 +50,7 @@ With the defaults, a model has the same parameter names, shapes and seeded initi
 - `recurrence_dtype=None` (the default) does no casting, as in 0.3.0. Under an outer bf16 autocast
   this means the prefix composition runs in bf16 while the fp32 initial state promotes the final
   application to fp32 — the mixed, implicit precision of 0.3.0. A pinned `recurrence_dtype` makes the
-  choice explicit (see [Numerical precision](configuration.md#numerical-precision)).
+  choice explicit (see [Numerical precision](precision.md)).
 
 ## Recurrent state format
 

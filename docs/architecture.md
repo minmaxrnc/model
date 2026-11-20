@@ -5,9 +5,14 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 # MinMax RNCs — Architecture
 
-[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md) · [Upgrading from 0.3.0](upgrading.md)
+[Index](README.md) · [Mathematical foundations](foundations.md) · [Architecture](architecture.md) · [Configuration](configuration.md) · [Numerical precision](precision.md) · [Upgrading from 0.3.0](upgrading.md)
 
-Notation as in [Mathematical foundation](foundations.md): 
+---
+
+This page describes the modules of a MinMax RNC, from neuron groups and layers to the backbone
+and the language-model wrapper, and how their parameters are initialised.
+
+**Notation.** As in [Mathematical foundations](foundations.md):
 the symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or matrices; 
 the symbol '$`*`$' denotes element-wise (Hadamard) product of vectors; 
 the symbol '$`\sigma`$' denotes the logistic sigmoid.
@@ -56,17 +61,31 @@ dimension $`d`$, fed the same input $`u_t`$. Each neuron $`k`$ has its own param
 $`R_t^{(k)} \in ℝ^{d \times d}`$ and $`s_t^{(k)} \in ℝ^d`$, and its own state
 $`x_t^{(k)} \in ℝ^d`$. The group computes them for all its neurons at once:
 
-1. two linear layers project $`u_t`$ to the parameters of every neuron: 
-   one linear layer `Linear(d_model, K·d²)` produces a vector `r` of dimension
-   $`K \cdot d^2`$, that is split into the $`K`$ matrices $`R_t^{(k)}`$;
-   and the other linear layer `Linear(d_model, K·d)` produces a vector `s` of dimension
-   $`K \cdot d`$, that is split into the $`K`$ vectors $`s_t^{(k)}`$;
-2. the states of all $`K`$ neurons are updated together, as one batched computation;
+1. two linear layers project the input to the parameters of every neuron, at all positions at
+   once: for an input of shape `(B, T, d_model)` (batch size $`B`$, sequence length $`T`$),
+   `Linear(d_model, K·d²)` produces `r` of shape `(B, T, K·d²)`, and `Linear(d_model, K·d)`
+   produces `s` of shape `(B, T, K·d)`. At each position $`t`$, the vector $`r_t`$ is split
+   into the $`K`$ matrices $`R_t^{(k)}`$, and the vector $`s_t`$ into the $`K`$ vectors
+   $`s_t^{(k)}`$;
+2. the states of all $`K`$ neurons are updated together, as one batched computation over the
+   batch, the neurons and the positions: the parallel scan runs on matrices of shape
+   `(B·K, T, d, d)`, with the neurons folded into the batch axis; in recurrent evaluation, all
+   neurons advance one step at a time;
 3. the states are projected back to the residual-stream dimension and summed over the neurons, by
    a single `Linear(K·d, d_model)` applied to the concatenated states.
 
 This is exactly equivalent to $`K`$ separate neurons whose outputs are summed ─ 
 only the compute is batched.
+
+**Cost.** Scalar-state neurons ($`d = 1`$) use an element-wise scan: $`O(T \log T)`$ work per
+neuron. For $`d > 1`$ each scan step composes $`d \times d`$ matrices: the work is
+$`O(K \cdot T \log T \cdot d^3)`$, and the scan materialises a `(B·K, T, d, d, d)` intermediate.
+Keep $`d`$ small (≈ 2–8), and scale with `num_neurons` and more groups instead.
+
+**Evidence so far.** On group state-tracking benchmarks, neurons with state dimension 3 learn the
+symmetric group $`S_3`$ (tracking the permutation of 3 elements) and generalise to much longer
+sequences than seen in training, but results vary across seeds; $`S_4`$ is solved only on some
+seeds, and the larger groups (the alternating group $`A_5`$ and $`S_5`$) have not been solved yet.
 
 The states are updated with the parallel prefix-scan over chunks of `unroll_steps` steps, carrying
 the state from one chunk to the next: 
@@ -106,7 +125,7 @@ where operations are capitalised and variables are lowercase:
 | `ConvNorm`, `FFNNorm`, `NeuronNorm` | pre-norms (`norm_conv`, `norm_ffn`, `norm_neuron` in the tree above): `LayerNorm` (default), `RMSNorm`, or none, set by `norm` | [`MinMaxRNCConfig`](configuration.md#minmaxrncconfig) |
 | `Conv` | mixing of the current input with the previous one: `BasicConv` (default) or `GatedConv`, set by `conv_type` | [Convolution Variants](#convolution-variants) |
 | `FFN` | feature-mixing feed-forward network: `GatedFeedForward` (default) or `FeedForward`, set by `ffn_type` | [Feed-forward Variants](#feed-forward-variants) |
-| `NeuronGroup` | a group of MinMax neurons, evaluated as described above | [MinMax Neuron Groups](#minmax-neuron-groups) |
+| [`NeuronGroup`](../src/minmaxrnc/minmax_rnc.py) | a group of MinMax neurons, evaluated as described above | [MinMax Neuron Groups](#minmax-neuron-groups) |
 
 The sum ranges over all the layer's neuron groups — the group of the `scalar_neurons` (it is
 `neuron` in the tree above) and each group of `neurons` (`neuron_groups`) — which all read the same
@@ -161,6 +180,39 @@ are applied after the final layer.
 - A dropout before the LM head.
 - An optional weight tie between the embedding and the LM head.
 
+## Initialisation
+
+Both functions initialise by sampling $`p \sim \mathcal{N}(0, \sigma^2)`$; the table gives $`\sigma`$.
+
+| Function | $`\sigma`$ | Paper |
+|---|---|---|
+| `small_init_init_(p, dim)` | $`\sqrt{\dfrac{2}{5 \cdot \mathrm{dim}}}`$ | Nguyen & Salazar, IWSLT 2019 |
+| `wang_init_(p, dim, N)` | $`\dfrac{2}{N \cdot \sqrt{\mathrm{dim}}}`$ | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
+
+`small_init_` is applied to all **input-side** projections: token embedding,
+LM head (when untied), BasicConv, FFN up-projection, and the neuron $`W_s`$, $`W_r`$,
+and output-gate $`W_g`$ projections.  It keeps activations small at initialisation
+in deep networks.
+
+`wang_init_` is applied to the two **residual output** projections: the
+neuron output $`W_o`$ and the FFN down-projection.  It additionally divides by N
+(number of residual blocks) so the total variance contributed by all residual
+branches to the stream stays O(1/N) regardless of depth — following the GPT-2
+scaled-init strategy.
+
+### s and r Projection Initialisation
+
+The `s_r_init` config field selects the initialisation scheme for the $`W_s`$ and $`W_r`$ projections
+($`W_r`$ produces $`R_t`$: one entry per neuron for scalar-state neurons, $`d^2`$ per neuron otherwise).
+
+| Scheme | $`W_s`$ weights | $`W_r`$ weights | $`b_s`$ | $`b_r`$ |
+|---|---|---|---|---|
+| `'small_init'` | `small_init_` | `small_init_` | 0 | 0 |
+| `'kaiming'` | Kaiming uniform ($`a = \sqrt{5}`$) | Kaiming uniform ($`a = \sqrt{5}`$) | 0 | 0 |
+| `'asymmetric'` | Kaiming uniform ($`a = \sqrt{5}`$) | `small_init_` | +1.0 | 0 |
+
+The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with $`x_0 = 0`$ and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting $`b_s = +1.0`$ ensures $`s > 0`$ at initialisation so writes happen from the first token; keeping $`W_r`$ small prevents r from immediately over-writing the written values.
+
 ## References
 
 - Vaswani et al. (2017). *Attention Is All You Need.* NeurIPS.
@@ -171,3 +223,13 @@ are applied after the final layer.
 
 - Shazeer (2020). *GLU Variants Improve Transformer.*
   https://arxiv.org/abs/2002.05202
+
+- Radford et al. (2019). *Language Models are Unsupervised Multitask Learners.*
+  OpenAI Blog.  https://openai.com/research/language-unsupervised
+
+- Nguyen & Salazar (2019). *Transformers without Tears: Improving the
+  Normalization of Self-Attention.* IWSLT.
+  https://arxiv.org/abs/1910.05895
+
+- Beck et al. (2024). *xLSTM: Extended Long Short-Term Memory.*
+  https://arxiv.org/abs/2405.04517

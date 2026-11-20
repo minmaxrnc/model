@@ -29,16 +29,16 @@ class MinMaxRNCLMConfig:
         If True (default), each neuron's output is element-wise multiplied by
         σ(W_g · u + b_g) before the final projection, so the gate starts near 0.5
         (fully open) and gradient flows freely from the start.
-        Overrides backbone.output_gate when set.
+        Always replaces backbone.output_gate: set it here, not on the backbone.
     conv_type : 'basic' | 'gated'
         Short-range convolution variant.  'basic' (default) — learned linear
         mixing of the previous and current token.  'gated' — adds a learned
         scalar gate interpolating between them.
-        Overrides backbone.conv_type when set.
+        Always replaces backbone.conv_type: set it here, not on the backbone.
     ffn_dropout : float
         Dropout applied inside the FFN of every layer except the first, which
         uses backbone.prelayers_dropout (default 0.0) instead.
-        Overrides backbone.ffn_dropout when set.
+        Always replaces backbone.ffn_dropout: set it here, not on the backbone.
     """
 
     backbone:     MinMaxRNCConfig

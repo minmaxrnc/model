@@ -3,12 +3,14 @@ SPDX-FileCopyrightText: 2026 Alessandro Ronca
 SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 -->
 
-# MinMax RNCs — Mathematical Foundation
+# MinMax RNCs — Mathematical Foundations
 
-[Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md) · [Upgrading from 0.3.0](upgrading.md)
+[Index](README.md) · [Mathematical foundations](foundations.md) · [Architecture](architecture.md) · [Configuration](configuration.md) · [Numerical precision](precision.md) · [Upgrading from 0.3.0](upgrading.md)
 
-See [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) 
-and 
+---
+
+This page defines the MinMax algebra and the MinMax recurrence, and shows how the recurrence is
+computed in parallel. See the [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and the
 [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 
 **Notation.** 
@@ -92,7 +94,7 @@ b_\mathrm{s} \in ℝ.
 \end{align}
 ```
 
-`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ of such neurons. 
+[`MinMaxRNCConfig.scalar_neurons = N`](../src/minmaxrnc/minmax_rnc.py) gives every layer $`N`$ of such neurons. 
 Stacking their states, weights and biases, the layer has states $`x^{(\ell)}_t \in ℝ^N`$ with 
 
 ```math
@@ -234,6 +236,8 @@ sequentially as a standard RNN with constant cost per step and a state of
 fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
 over chunks of $`k`$ steps and the recurrence across chunks — depth
 $`O\bigl((T/k) \cdot \log(k)\bigr)`$, work $`O\bigl(T \cdot \log(k)\bigr)`$.
+All choices give identical results. Typically one trains and prefills prompts in parallel,
+generates token by token, and uses an intermediate $`k`$ for sequences too long to scan in one go.
 
 ## References
 

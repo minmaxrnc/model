@@ -3,19 +3,6 @@ SPDX-FileCopyrightText: 2026 Alessandro Ronca
 SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 -->
 
-# MinMax Recurrent Neural Cascades (MinMax RNCs) — Documentation
+# MinMax RNCs — Documentation
 
-See [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) 
-and 
-[arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
-
-## Index
-
-- [Mathematical foundation](foundations.md) — the MinMax algebra, the MinMax recurrence for any
-  state dimension, composition closure, and the parallel prefix scan.
-- [Architecture](architecture.md) — neuron groups, layers, convolutions, feed-forward networks, the
-  backbone and the language-model wrapper.
-- [Configuration and implementation](configuration.md) — every configuration field, presets,
-  numerical precision, and initialisation.
-- [Upgrading from 0.3.0](upgrading.md) — backward compatibility with 0.3.0: API, weights,
-  outputs, legacy names and precision defaults.
+The documentation index has moved to [README.md](README.md).

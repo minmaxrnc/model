@@ -1,83 +1,41 @@
 # MinMax Recurrent Neural Cascades
 
+[Project website](https://minmaxrnc.org/) · [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) ·
+[arXiv paper](https://arxiv.org/abs/2605.06384) · [Documentation](docs/README.md)
+
+---
+
 A parallelisable recurrent architecture truly for long-sequence processing — 
 expressively powerful, efficiently implementable, provably stable, 
 and not affected by vanishing gradients.
 
-Resources:
-- [Project website](https://minmaxrnc.org/) for an overview, results, and news.
-- [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and 
-  [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
-  <!-- github-only -->
-- Documentation in [`docs/`](docs/model.md): [mathematical foundation](docs/foundations.md),
-  [architecture](docs/architecture.md), [configuration and implementation](docs/configuration.md),
-  and [upgrading from 0.3.0](docs/upgrading.md).
-  <!-- /github-only -->
-  <!-- pypi-only
-  - [Repository](https://github.com/minmaxrnc/model), including the [documentation](docs/model.md) on the
-    mathematical foundation, architecture, configuration, and upgrading from 0.3.0.
-  -->
-
-## Key properties
+## Why MinMax RNCs
 
 - **Perfect memory over long contexts.** A MinMax neuron can hold a value for arbitrarily many steps
-  without corrupting it, and hence it can track states such as "has X happened yet?" or 
-  "which phase are we in?" over arbitrarily long sequences. 
-  Models trained on short sequences have been evaluated without loss of accuracy on sequences of
-  over a million tokens. 
-  *Formal expressivity:* all star-free languages with scalar-state neurons, up to all regular
-  languages with neurons of larger state dimension.
-- **Parallel, recurrent, or anything in between.** The same model can be evaluated in any of the
-  following ways. 
-  - In parallel over a whole sequence of length $`T`$ via parallel scan. 
-    *Computational cost:* depth $`O(\log(T))`$ and work $`O(T \cdot \log(T))`$
-    (a work-efficient scan would need only $`O(T)`$).
-  - Step by step via a recurrence. 
-    *Computational cost:* constant compute and memory per token. 
-  - By interleaving parallel and recurrence evaluation: parallel scan over chunks of $`k`$ steps, 
-    with recurrence across chunks. 
-    The value of $`k`$ can be set with `unroll_steps`. 
-    It is fully parallel when $`k = T`$, and fully recurrent when $`k = 1`$.
-    All choices give identical results. 
-    Typically one would train and prefill prompts in parallel, then generate token by token, and use
-    an intermediate $`k`$ to process sequences too long to scan in one go.
-    *Computational cost:* depth $`O((T/k) \cdot \log(k))`$ and work $`O(T \cdot \log(k))`$.
-- **Stable by construction.** States, activations, and gradients stay bounded, independently of how
-  long the input sequence is, because the recurrence produces states by simply *selecting* scalars
-  from the previous state or current inputs (via min and max operations). 
+  without corrupting it, so it can track states such as "has X happened yet?" or "which phase are
+  we in?" over arbitrarily long sequences.
+- **Memory that does not fade.** Models trained on short sequences have been evaluated without
+  loss of accuracy on sequences of over a million tokens.
+- **Expressively powerful.** Scalar-state neurons capture all star-free languages; neurons of larger
+  state dimension, up to all regular languages.
+- **Stable by construction.** States, activations, and gradients stay bounded, however long the
+  input sequence is, because the recurrence only *selects* values from the previous state or the
+  current inputs (via min and max operations).
 - **Long-range credit assignment.** Information from early tokens can reach the end of the sequence
-  unchanged, and so can the gradient back to them, so models can learn dependencies spanning the
-  whole context (i.e., they do not suffer from vanishing state gradients).
+  unchanged, and so can the gradient back to them: no vanishing state gradients.
+- **Parallel, recurrent, or anything in between.** Train in parallel over the whole sequence with a
+  parallel scan (depth $`O(\log T)`$); generate step by step with constant compute and memory per
+  token; or scan chunks of $`k`$ steps with recurrence across chunks (`unroll_steps = k`). All give
+  identical results; see [Parallel computation](docs/foundations.md#parallel-computation-via-prefix-scan)
+  for the costs.
+- **Plain PyTorch.** No custom CUDA kernels; works with `torch.compile` and mixed precision.
+- **Ahead of state-of-the-art recurrent models on long sequences.** On synthetic benchmarks of
+  long-horizon memory, sequential pattern matching and recall, trained on sequences of length up to
+  512 and evaluated up to 1M, MinMax RNCs keep perfect accuracy, whereas Mamba, mLSTM, xLSTM,
+  DeltaNet and sLSTM lose accuracy as the sequences grow. On the word problems of the symmetric
+  groups $`S_3`$ and $`S_4`$, a single layer is perfectly accurate on sequences of length 1M.
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
-  validation loss 3.12 as GPT-2 of 124M parameters.
-- **Plain PyTorch.** No custom CUDA kernels. Works with `torch.compile` and 
-  mixed precision (`amp_dtype`, `recurrence_dtype`), and is a drop-in sequence backbone or language model.
-
-
-## The model
-
-Each layer contains three sub-modules, each applied to a normalised input (pre-norm). The
-convolution and the feed-forward network compute the input of the neurons, and only the neurons'
-output is added back to the residual stream:
-
-1. **Convolution** — short-range mixing that uses only the current and the previous token.
-2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state dimension $`d`$ updates
-   its state $`x_t \in ℝ^d`$ by the MinMax recurrence $`x_t = (R_t \otimes x_{t-1}) \oplus s_t`$
-   where the matrix $`R_t \in ℝ^{d \times d}`$ and the vector
-   $`s_t \in ℝ^d`$ are computed from the input to the neuron.
-   MinMax recurrence is obtained from ordinary affine recurrence by replacing sum and product
-   operations $`(+, \times)`$ on vectors and matrices with their MinMax counterparts $`(\oplus, \otimes)`$, 
-   that replace scalar addition and multiplication with max and min, respectively,
-   and extend the resulting operations to vectors and matrices in the usual way.
-   With $`d = 1`$ the state and $`R_t = r_t`$ are scalars, and the recurrence can be written as
-   $`x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)`$;
-   with larger $`d`$ the state coordinates interact. 
-   Each layer holds groups of neurons, of any state dimensions, and sums their outputs; the
-   neurons of a group are evaluated together, in parallel or step by step 
-   (see [Neurons of any state dimension](#neurons-of-any-state-dimension)).
-
-
+  validation loss (3.12) as GPT-2 of 124M parameters.
 
 ## Installation
 
@@ -130,25 +88,24 @@ for _ in range(max_new_tokens):
     logits, state = model(next_tok, unroll_steps=1, state=state, return_state=True)
 ```
 
-### Custom configuration
+## Configuration
+
+### Presets
+
+Three ready-made sizes. Each is an ordinary [`MinMaxRNCConfig`](src/minmaxrnc/minmax_rnc.py), so it can be used as it is or as a
+starting point:
 
 ```python
-from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
+import dataclasses
+from minmaxrnc import MinMaxRNC_LM, MinMaxRNCConfig, MinMaxRNCLMConfig
 
-cfg = MinMaxRNCConfig(
-    d_model          = 768,
-    n_layers         = 12,
-    scalar_neurons   = 192,       # 192 scalar-state neurons per layer
-    norm             = 'rmsnorm',
-    ffn_type         = 'gated',
-    ffn_act_fn       = 'swish',   # → SwiGLU
-    output_gate      = True,
-    use_postlayers_ffn = True,
-)
-model = MinMaxRNC(cfg)
+cfg = MinMaxRNCConfig.medium()                    # as in the table below
+cfg = MinMaxRNCConfig.medium(n_layers=4)          # same width, fewer layers
+cfg = dataclasses.replace(MinMaxRNCConfig.medium(), norm='rmsnorm')   # any other field
+
+# The 112M language model mentioned above: the large preset with the gated convolution
+model = MinMaxRNC_LM(50257, MinMaxRNCLMConfig(backbone=MinMaxRNCConfig.large(), conv_type='gated'))
 ```
-
-#### Preset sizes
 
 | Preset   | `d_model` | `n_layers` | `scalar_neurons` | Parameters (backbone) | Parameters (LM, GPT-2 vocab) |
 |----------|-----------|------------|------------------|-----------------------|------------------------------|
@@ -156,126 +113,91 @@ model = MinMaxRNC(cfg)
 | `medium` | 512       | 8          | 512              | ~20.8 M               | ~46.6 M                      |
 | `large`  | 728       | 12         | 1456             | ~88.6 M               | ~125.2 M                     |
 
-Counts are for the default configuration; the LM ties its embedding and output weights. With the
-gated convolution (`conv_type='gated'`), which replaces each layer's
-`Linear(2·d_model, d_model)` with a per-feature gate, they are ~0.1 / ~4.6 M (`small`),
-~16.6 / ~42.4 M (`medium`) and ~75.9 / ~112.5 M (`large`) — the latter being the 112M model
-mentioned above.
+See [Presets](docs/configuration.md#presets) for the details.
 
-### Neurons of any state dimension
+### Custom configuration
 
-A MinMax neuron can have any state dimension $`d`$. Its state transition is a
-$`d \times d`$ matrix applied in the (max, min) semiring,
-$`(R \otimes x)_i = \mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$;
-a neuron with state dimension $`d`$ can realise permutation semiautomata of
-degree $`d`$. Each layer holds one or
-more **neuron groups**, each made of `num_neurons` neurons with the same
-state dimension, configured through `neurons` and `scalar_neurons`:
+Each layer holds groups of MinMax neurons. A neuron can have any state dimension $`d`$: scalar-state
+neurons ($`d = 1`$) are the cheapest, and larger $`d`$ lets a neuron track richer state, e.g.
+permutations of $`d`$ elements.
 
 ```python
 from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
 
 cfg = MinMaxRNCConfig(
-    d_model = 90,
-    n_layers = 2,
-    scalar_neurons = 64,                            # 64 scalar-state neurons
-    neurons = [
-        NeuronGroup(d_state=3, num_neurons=16),     # 16 neurons with 3-dimensional state
-        (4, 2),                                     # tuple shorthand: d_state=4, num_neurons=2
+    d_model          = 768,
+    n_layers         = 12,
+    scalar_neurons   = 192,                           # 192 scalar-state neurons per layer
+    neurons          = [
+        NeuronGroup(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
+        (4, 2),                                       # tuple shorthand: d_state=4, num_neurons=2
     ],
+    norm             = 'rmsnorm',
+    ffn_type         = 'gated',
+    ffn_act_fn       = 'swish',                       # → SwiGLU
+    output_gate      = True,
+    use_postlayers_ffn = True,
 )
 model = MinMaxRNC(cfg)
 ```
 
-Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1)` or the
-equivalent tuple/list (handy for YAML configs).
-`scalar_neurons = N` is shorthand for the group
-`NeuronGroup(d_state=1, num_neurons=N)`: `N` scalar-state neurons. The neurons
-of a group are evaluated together, as one batched computation — in parallel or
-step by step, as set by `unroll_steps` — and all neuron outputs of a layer are
-summed.
-
-Things to know:
-
-- **Cost.** Scalar-state neurons (`scalar_neurons`, or groups with `d_state=1`) use an
-  element-wise scan: $`O(T \log T)`$ work per neuron. For $`d > 1`$ each scan step composes $`d \times d`$ matrices: work is
-  $`O(K \cdot T \log T \cdot d^3)`$ for $`K`$ = `num_neurons`, and the scan materialises a
-  `(B·num_neurons, T, d, d, d)` intermediate. Keep $`d`$ small (≈ 2–8) and
-  scale with `num_neurons` and more groups instead.
-- **Evidence so far.** On group state-tracking benchmarks, neurons with
-  state dimension 3 learn the symmetric group $`S_3`$ (tracking the permutation of 3 elements)
-  and generalise to much longer sequences than seen in training, but results vary across seeds;
-  $`S_4`$ is solved only on some seeds, and the larger groups (the alternating group $`A_5`$ and
-  $`S_5`$) have not been solved yet.
-
-See the [mathematical foundation](docs/foundations.md#minmax-recurrence) for the maths.
+The neurons of a group are evaluated together, as one batched computation. The cost of a neuron
+grows as $`d^3`$, so keep $`d`$ small (≈ 2–8) and scale with more neurons instead. See
+[Configuration](docs/configuration.md) for every field, and
+[MinMax Neuron Groups](docs/architecture.md#minmax-neuron-groups) for the cost.
 
 ### Mixed precision
 
-Two independent settings, both off by default:
-
-| Setting | Values | Effect |
-|---|---|---|
-| `amp_dtype` | `None` (default), `'bf16'`, `'fp16'` | When set, `forward()` runs under `torch.autocast(device, dtype=…)` (the LM wrapper also covers the embedding and head). `None` leaves autocast to the caller. |
-| `recurrence_dtype` | `None` (default), `'fp32'`, `'bf16'`, `'fp16'` | Dtype of the MinMax recurrence: its inputs ($`R_t`$, $`s_t`$ and the incoming state), the states it computes (including the state carried to the next chunk), and their gradients. `None` does no casting. The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision. The input projections and the output projection are not affected. |
-
-What the recurrence's precision affects:
-
-- **Forward pass: only if the scan is *less* precise than its inputs.** The scan
-  only *selects* among its inputs (min/max), never computes new values. Under
-  bf16 AMP its inputs are already bf16, so running it in fp32 gives bitwise the
-  same outputs as running it in bf16 (except for a learned initial state, which
-  a bf16 recurrence rounds). In an fp32 model, a bf16 recurrence does round its inputs.
-- **Backward pass: gradient accumulation.** A value that is selected and held
-  for many steps receives a gradient contribution from each of them, summed in
-  the recurrence's dtype. An fp32 recurrence sums them accurately even under bf16 AMP; a
-  bf16 recurrence sums them with bf16's ~3 significant digits, which matters most for
-  values held over long ranges.
-- **Cost.** The scan is memory-bandwidth bound (min/max, no tensor cores) and
-  its intermediates are a large share of activation memory for long
-  sequences, so a 4-byte dtype costs about twice a 2-byte one.
-
-Common recipes:
-
-| Goal | `amp_dtype` | `recurrence_dtype` | Effect |
-|---|---|---|---|
-| Full precision (default) | `None` | `None` | everything in fp32 |
-| bf16 AMP, fp32 recurrence | `'bf16'` | `'fp32'` | same forward as a bf16 recurrence; recurrence gradients summed in fp32; more recurrence memory |
-| Fully bf16, recurrence included | `'bf16'` | `'bf16'` | least memory; recurrence gradients summed in bf16 |
-| fp32 model, bf16 recurrence | `None` | `'bf16'` | only the recurrence in bf16: it rounds its inputs, saving recurrence memory and bandwidth |
-| bf16 AMP, fp16 recurrence (untested) | `'bf16'` | `'fp16'` | bf16 values fit fp16 exactly within its range; finer gradient sums than bf16, but overflow above 65504 |
-
-How much the more accurate gradients of an fp32 recurrence help training has not
-been measured yet; validate `'bf16'` against `'fp32'` on your task.
+Two settings, both off by default: `amp_dtype` (`'bf16'` or `'fp16'`) runs the model under
+automatic mixed precision, and `recurrence_dtype` sets the dtype of the MinMax recurrence itself:
 
 ```python
 import dataclasses
-from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
+from minmaxrnc import MinMaxRNCConfig
 
-cfg   = dataclasses.replace(MinMaxRNCConfig.medium(), amp_dtype='bf16', recurrence_dtype='fp32')
-model = MinMaxRNC(cfg)
+cfg = dataclasses.replace(MinMaxRNCConfig.medium(), amp_dtype='bf16')
 ```
 
-Notes:
+See [Numerical precision](docs/precision.md) for what each setting affects, and recommended
+combinations.
 
-- With `recurrence_dtype=None` under autocast the recurrence
-  runs on bf16 projections with an fp32 initial state, so its precision is
-  mixed and implicit; pick a pinned `recurrence_dtype` to make it explicit.
-- An explicit `amp_dtype` overrides the dtype of an outer autocast inside the
-  model. fp16 training also needs a `torch.amp.GradScaler`, which remains
-  the caller's job.
+## How it works
 
-## Upgrading from 0.3.0
+**MinMax recurrence.** A MinMax neuron with state dimension $`d`$ updates its state
+$`x_t \in ℝ^d`$ by
 
-0.4.0 is backward compatible with 0.3.0: no code changes are needed, and 0.3.0 checkpoints load
-as they are. See [docs/upgrading.md](docs/upgrading.md) for the details, and
-[CHANGELOG.md](CHANGELOG.md) for the full list of changes.
-
-## Running the tests
-
-```bash
-pytest
+```math
+x_t = (R_t \otimes x_{t-1}) \oplus s_t
 ```
+
+where the matrix $`R_t \in ℝ^{d \times d}`$ and the vector $`s_t \in ℝ^d`$ are affine projections
+of the current input. It is an ordinary affine recurrence in which addition and multiplication are
+replaced by max and min, i.e. $`\oplus`$ and $`\otimes`$ are the matrix operations of the
+(max, min) algebra. For scalar states ($`d = 1`$) it reads
+$`x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)`$: the reset $`r_t`$ caps the previous
+state and the set $`s_t`$ raises it. Every state value is selected from the previous state or the
+current inputs, so values can be held exactly for any number of steps, and states stay bounded.
+Compositions of MinMax recurrence maps are again MinMax recurrence maps, which is what allows the
+parallel scan.
+
+**MinMax RNC.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
+sub-modules, each applied to a normalised input (pre-norm): a short **convolution** over the
+current and the previous token, a **feed-forward network** for feature mixing, and **groups of
+MinMax neurons**, which receive the output of the other two. Only the neurons' output, summed over
+all neurons, is added back to the residual stream.
+
+See [Mathematical foundations](docs/foundations.md) and [Architecture](docs/architecture.md).
+
+## Documentation
+
+- [Mathematical foundations](docs/foundations.md) — the MinMax algebra and recurrence, and how it
+  is computed in parallel.
+- [Architecture](docs/architecture.md) — the modules, from neuron groups to the language model,
+  and their initialisation.
+- [Configuration](docs/configuration.md) — every configuration field, and the presets.
+- [Numerical precision](docs/precision.md) — mixed precision and the dtype of the recurrence.
+- [Upgrading from 0.3.0](docs/upgrading.md) — 0.4.0 is backward compatible with 0.3.0: no code
+  changes are needed, and 0.3.0 checkpoints load as they are.
 
 ## How to cite
 
