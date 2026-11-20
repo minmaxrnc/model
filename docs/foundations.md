@@ -21,25 +21,25 @@ the symbol $`\sigma`$ denotes the logistic sigmoid.
 
 The MinMax algebra replaces addition and multiplication of real numbers with max and min:
 
-| Operation | Definition |
-|---|---|
-| MinMax 'addition' | $`a \oplus b = \mathrm{max}(a, b)`$ |
-| MinMax 'multiplication' | $`a \otimes b = \mathrm{min}(a, b)`$ |
+| MinMax Operation      | Definition                           |
+|-----------------------|--------------------------------------|
+| Scalar addition       | $`a \oplus b = \mathrm{max}(a, b)`$  |
+| Scalar multiplication | $`a \otimes b = \mathrm{min}(a, b)`$ |
 
 Both operations extend to vectors and matrices in the usual way, 
-with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\times`$:
+with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\cdot`$:
 
-| Operation | Definition |
-|---|---|
-| vector 'sum' | $`(x \oplus y)_i = \mathrm{max}(x_i, y_i)`$ |
-| matrix-vector 'product' | $`(R \otimes x)_i=\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$ |
-| matrix-matrix 'product' | $`(R \otimes R')_{ik}=\mathrm{max}_j\, \mathrm{min}(R_{ij}, R'_{jk})`$ |
+| MinMax Operation      | Definition                                                             |
+|-----------------------|------------------------------------------------------------------------|
+| Vector addition       | $`(x \oplus y)_i = \mathrm{max}(x_i, y_i)`$                            |
+| Matrix-vector product | $`(R \otimes x)_i=\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$         |
+| Matrix-matrix product | $`(R \otimes R')_{ik}=\mathrm{max}_j\, \mathrm{min}(R_{ij}, R'_{jk})`$ |
 
 
 ## MinMax Recurrence
 
-A MinMax neuron with state dimension $`d`$ maintains a hidden state $`x_t \in ℝ^d`$,
-obtained by updating the previous state by a MinMax affine map whose parameters are computed from the
+A MinMax neuron of state dimension $`d`$ maintains a state $`x_t \in ℝ^d`$
+by updating the previous state via a MinMax affine map whose parameters are computed from the
 current input $`u_t \in ℝ^m`$:
 
 ```math
@@ -48,21 +48,23 @@ x_t = (R_t \otimes x_{t-1}) \oplus s_t
 
 where both parameters are affine projections of the input:
 
-| Parameter | Dimension | Name | Definition |
-|---|---|---|---|
-| $`R_t`$ |$`d \times d`$ | Reset matrix | $`\mathtt{reshape}(W_r \cdot u_t + b_r, (d, d))`$ |
-| $`s_t`$ |$`d`$          | Set vector   | $`W_s \cdot u_t + b_s`$                           |
+| Parameter | Dimension    | Name         | Definition                                             |
+|-----------|--------------|--------------|--------------------------------------------------------|
+| $`R_t`$   |$`d\times d`$ | Reset matrix |$`\mathtt{reshape}\bigl(W_\mathrm{r}\cdot u_t +b_\mathrm{r},(d, d)\bigr)`$|
+| $`s_t`$   |$`d`$         | Set vector   |$`W_\mathrm{s} \cdot u_t + b_\mathrm{s}`$                                 |
 
-with weights $`W_r \in ℝ^{d^2 \times m}`$, $`W_s \in ℝ^{d \times m}`$ and biases
-$`b_r \in ℝ^{d^2}`$, $`b_s \in ℝ^d`$, all learned.
+with weights $`W_\mathrm{r} \in ℝ^{d^2 \times m}`$, $`W_\mathrm{s} \in ℝ^{d \times m}`$ and biases
+$`b_\mathrm{r} \in ℝ^{d^2}`$, $`b_\mathrm{s} \in ℝ^d`$, all learned.
 
-*Note:* Each entry of $`R_t`$ and $`s_t`$ is given by an affine function of $`u_t`$ independently of
-any other entry. There is no immediate reason to adopt parametrisations that impose constraints on
+*Note:* Each entry of $`R_t`$ and $`s_t`$ is obtained via an affine function of $`u_t`$, 
+independently of any other entry. 
+There is no immediate reason to adopt parametrisations that impose constraints on
 the entries — in contrast to Linear RNNs where it is crucial to adopt parametrisations ensuring
 properties such as non-expansiveness.
 
 **Special case: Scalar-state neurons ($`d = 1`$).** For a single neuron with $`d = 1`$, states
-$`x_t`$ are scalar, and so are resets $`R_t = r_t`$ and sets $`s_t`$. The recurrence admits the form
+$`x_t`$ are scalar, and so are resets $`R_t = r_t`$ and sets $`s_t`$. 
+The recurrence can be written as
 
 ```math
 x_t = \mathrm{max}\bigl(\mathrm{min}(r_t, x_{t-1}), s_t\bigr)
@@ -70,17 +72,28 @@ x_t = \mathrm{max}\bigl(\mathrm{min}(r_t, x_{t-1}), s_t\bigr)
 
 and the reset and set parameters can be more easily interpreted:
 
-| Parameter | Definition | Role |
-|---|---|---|
-| $`r_t`$ | $`w_r \cdot u_t + b_r`$ | upper bound — reset signal / forget gate |
-| $`s_t`$ | $`w_s \cdot u_t + b_s`$ | lower bound — set signal / write value |
+| Parameter | Definition                                | Role                                     |
+|-----------|-------------------------------------------|------------------------------------------|
+| $`r_t`$   | $`w_\mathrm{r} \cdot u_t + b_\mathrm{r}`$ | upper bound — reset signal / forget gate |
+| $`s_t`$   | $`w_\mathrm{s} \cdot u_t + b_\mathrm{s}`$ | lower bound — set signal / write value   |
 
-where $`w_r, w_s \in ℝ^m`$ and $`b_r, b_s \in ℝ`$ are the neuron's input weight vectors 
-and biases, respectively.
+where $`w_\mathrm{r}, w_\mathrm{s} \in ℝ^m`$ and $`b_\mathrm{r}, b_\mathrm{s} \in ℝ`$ are the
+neuron's input weight vectors and biases, respectively.
 
-`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. Stacking their states,
-weights and biases, the layer keeps $`x_t \in ℝ^N`$ with $`r_t = W_r \cdot u_t + b_r`$ and
-$`s_t = W_s \cdot u_t + b_s`$ ($`W_r, W_s \in ℝ^{N \times m}`$, $`b_r, b_s \in ℝ^N`$), and the
+`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. 
+Stacking their states, weights and biases, the layer has states 
+$`x_t \in ℝ^N`$ with 
+
+```math
+r_t = W_\mathrm{r} \cdot u_t + b_\mathrm{r}
+\qquad\text{and}\qquad
+s_t = W_\mathrm{s} \cdot u_t + b_\mathrm{s}
+\qquad\text{ for}
+W_\mathrm{r}, W_\mathrm{s} \in ℝ^{N \times m},
+b_\mathrm{r}, b_\mathrm{s} \in ℝ^N,
+```
+
+and the
 recurrence above holds element-wise, one coordinate per neuron. 
 They are evaluated with a dedicated element-wise scan, so the cost per step is $`O(1)`$ per neuron.
 
@@ -90,13 +103,15 @@ permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the tas
 needs but typically small; layers scale by having more neurons
 (`num_neurons`) and more neuron groups rather than larger $`d`$. 
 
-**Output.** Each neuron's state is projected back to the input space, and
-the outputs of all neurons in a layer are summed:
 
-| `output_gate` | Output |
-|---|---|
-| `False`          | $`y_t = W_o \cdot x_t + b_o`$ |
-| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t + b_g)) + b_o`$ |
+## MinMax Layer's Output
+Each neuron's state is projected back to the input space, and the outputs of all neurons in a layer
+are summed:
+
+| `output_gate`  | Output                                                                               |
+|----------------|--------------------------------------------------------------------------------------|
+|`True` (default)|$`y_t=W_\mathrm{o}\cdot(x_t*\sigma(W_\mathrm{g}\cdot u_t+b_\mathrm{g}))+b_\mathrm{o}`$|
+|`False`         |$`y_t=W_\mathrm{o}\cdot x_t + b_\mathrm{o}`$                                          |
 
 
 ## MinMax Recurrence Map
