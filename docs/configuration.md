@@ -7,7 +7,7 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 [Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md)
 
-Configuration fields, numerical precision, initialisation and feed-forward variants. Notation as in
+Configuration fields, numerical precision and initialisation. Notation as in
 [Mathematical foundation](foundations.md).
 
 ## Configuration Reference
@@ -24,7 +24,7 @@ All architecture hyperparameters are specified through a single flat
 | `d_state` | int | `0` | Legacy name of `scalar_neurons` (the 0.3.0 field, kept for backward compatibility): `d_state=N` builds the same model as `scalar_neurons=N`. Set at most one of the two |
 | `norm` | str | `'layernorm'` | In-layer pre-norm: `'layernorm'`, `'rmsnorm'`, `'none'` |
 | `postlayers_norm` | str | `'layernorm'` | Norm applied after the final layer |
-| `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) |
+| `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) — see [Feed-forward Variants](architecture.md#feed-forward-variants) |
 | `ffn_proj_factor` | float | `1.3` | FFN hidden-dim expansion factor |
 | `ffn_act_fn` | str | `'relu'` | FFN activation: `'relu'`, `'relu^2'`, `'gelu'`, `'swish'`, `'sigmoid'`, `'selu'` |
 | `ffn_dropout` | float | `0.1` | Dropout inside the FFN |
@@ -33,7 +33,7 @@ All architecture hyperparameters are specified through a single flat
 | `train_init` | bool | `False` | Make the initial hidden state $`x_0`$ a learned parameter |
 | `neuron_dropout` | float | `0.0` | Dropout on the neuron input |
 | `s_r_init` | str | `'small_init'` | Init scheme for s and r projections: `'small_init'`, `'kaiming'`, or `'asymmetric'` |
-| `conv_type` | str | `'basic'` | `'gated'` (scalar gate) or `'basic'` (linear mix) |
+| `conv_type` | str | `'basic'` | `'basic'` (learned affine map of the previous and current token) or `'gated'` (per-feature gate between them) — see [Convolution Variants](architecture.md#convolution-variants) |
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
@@ -169,26 +169,7 @@ The **asymmetric** scheme addresses an initialisation dead zone, seen most easil
 
 ---
 
-## Feed-forward Variants
-
-| Class | Formula | Paper |
-|---|---|---|
-| `FeedForward` | $`W_2 \cdot \phi(W_1 \cdot x + b_1) + b_2`$ | Vaswani et al., NeurIPS 2017 |
-| `GatedFeedForward` | $`W_2 \cdot (\phi(\mathrm{gate}) * \mathrm{value}) + b_2`$, where $`[\mathrm{gate}; \mathrm{value}] = W_1 \cdot x + b_1`$ | Dauphin et al., ICML 2017; Shazeer 2020 |
-
-Here $`\phi`$ is the activation selected by `ffn_act_fn`, $`\cdot`$ matrix
-multiplication and $`*`$ the element-wise product. The gated variant is the default (`ffn_type='gated'`).  With `act_fn='relu'`
-it is **ReGLU**; with `act_fn='swish'` it is **SwiGLU**.
-
----
-
 ## References
-
-- Vaswani et al. (2017). *Attention Is All You Need.* NeurIPS.
-  https://arxiv.org/abs/1706.03762
-
-- Dauphin et al. (2017). *Language Modeling with Gated Convolutional Networks.* ICML.
-  https://arxiv.org/abs/1612.08083
 
 - Radford et al. (2019). *Language Models are Unsupervised Multitask Learners.*
   OpenAI Blog.  https://openai.com/research/language-unsupervised
@@ -196,9 +177,6 @@ it is **ReGLU**; with `act_fn='swish'` it is **SwiGLU**.
 - Nguyen & Salazar (2019). *Transformers without Tears: Improving the
   Normalization of Self-Attention.* IWSLT.
   https://arxiv.org/abs/1910.05895
-
-- Shazeer (2020). *GLU Variants Improve Transformer.*
-  https://arxiv.org/abs/2002.05202
 
 - Beck et al. (2024). *xLSTM: Extended Long Short-Term Memory.*
   https://arxiv.org/abs/2405.04517

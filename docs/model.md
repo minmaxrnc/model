@@ -13,7 +13,7 @@ and
 
 - [Mathematical foundation](foundations.md) — the MinMax algebra, the MinMax recurrence for any
   state dimension, composition closure, and the parallel prefix scan.
-- [Architecture](architecture.md) — neuron groups, layers, convolutions, the backbone and the
-  language-model wrapper.
+- [Architecture](architecture.md) — neuron groups, layers, convolutions, feed-forward networks, the
+  backbone and the language-model wrapper.
 - [Configuration and implementation](configuration.md) — every configuration field, presets,
-  numerical precision, initialisation, and feed-forward variants.
+  numerical precision, and initialisation.

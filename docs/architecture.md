@@ -104,9 +104,9 @@ where operations are capitalised and variables are lowercase:
 
 | Operation | What it is | Described in |
 |---|---|---|
-| `ConvNorm`, `FFNNorm`, `NeuronNorm` | pre-norms (`norm_conv`, `norm_ffn`, `norm_neuron` in the tree above): `LayerNorm` (default), `RMSNorm`, or none, set by `norm` | [Configuration Reference](configuration.md#configuration-reference) |
+| `ConvNorm`, `FFNNorm`, `NeuronNorm` | pre-norms (`norm_conv`, `norm_ffn`, `norm_neuron` in the tree above): `LayerNorm` (default), `RMSNorm`, or none, set by `norm` | [`MinMaxRNCConfig`](configuration.md#minmaxrncconfig) |
 | `Conv` | mixing of the current input with the previous one: `BasicConv` (default) or `GatedConv`, set by `conv_type` | [Convolution Variants](#convolution-variants) |
-| `FFN` | feature-mixing feed-forward network: `GatedFeedForward` (default) or `FeedForward`, set by `ffn_type` | [Feed-forward Variants](configuration.md#feed-forward-variants) |
+| `FFN` | feature-mixing feed-forward network: `GatedFeedForward` (default) or `FeedForward`, set by `ffn_type` | [Feed-forward Variants](#feed-forward-variants) |
 | `NeuronGroup` | a group of MinMax neurons, evaluated as described above | [MinMax Neuron Groups](#minmax-neuron-groups) |
 
 The sum ranges over all the layer's neuron groups — the group of the `scalar_neurons` (it is
@@ -126,10 +126,10 @@ maintain a state.
 ## Convolution Variants
 
 **[BasicConv](../src/minmaxrnc/modules/basic_conv.py)** (default) — a learned affine projection of the concatenated previous and current
-token, $`\mathrm{out}_t = W_c \cdot [u_{t-1}; u_t] + b_c`$, mapping back to $`ℝ^D`$; more expressive
+token, $`\mathrm{out}_t = W_c \cdot [u_{t-1}; u_t] + b_c`$, mapping back to $`ℝ^{d_\mathrm{model}}`$; more expressive
 local mixing at the cost of 2× the parameters.
 
-**[GatedConv](../src/minmaxrnc/modules/gated_conv.py)** — a learned per-feature scalar gate $`g \in ℝ^D`$ interpolates
+**[GatedConv](../src/minmaxrnc/modules/gated_conv.py)** — a learned per-feature scalar gate $`g \in ℝ^{d_\mathrm{model}}`$ interpolates
 between the previous and current token:
 
 ```math
@@ -138,6 +138,17 @@ between the previous and current token:
 
 where $`*`$ is the element-wise product: each feature mixes the previous and
 the current token with its own weight $`\sigma(g_i)`$.
+
+## Feed-forward Variants
+
+| Class | Formula | Paper |
+|---|---|---|
+| `FeedForward` | $`W_2 \cdot \phi(W_1 \cdot x + b_1) + b_2`$ | Vaswani et al., NeurIPS 2017 |
+| `GatedFeedForward` | $`W_2 \cdot (\phi(\mathrm{gate}) * \mathrm{value}) + b_2`$, where $`[\mathrm{gate}; \mathrm{value}] = W_1 \cdot x + b_1`$ | Dauphin et al., ICML 2017; Shazeer 2020 |
+
+Here $`\phi`$ is the activation selected by `ffn_act_fn`, $`\cdot`$ matrix
+multiplication and $`*`$ the element-wise product. The gated variant is the default (`ffn_type='gated'`). With `ffn_act_fn='relu'`
+it is **ReGLU**; with `ffn_act_fn='swish'` it is **SwiGLU**.
 
 ## MinMax RNC
 
@@ -150,3 +161,14 @@ are applied after the final layer.
 - Token embedding with `small_init_` initialisation.
 - A dropout before the LM head.
 - An optional weight tie between the embedding and the LM head.
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need.* NeurIPS.
+  https://arxiv.org/abs/1706.03762
+
+- Dauphin et al. (2017). *Language Modeling with Gated Convolutional Networks.* ICML.
+  https://arxiv.org/abs/1612.08083
+
+- Shazeer (2020). *GLU Variants Improve Transformer.*
+  https://arxiv.org/abs/2002.05202
