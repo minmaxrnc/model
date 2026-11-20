@@ -11,7 +11,7 @@ Resources:
 - Architecture reference in `docs/model.md`.
   <!-- /github-only -->
   <!-- pypi-only
-- [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
+  - [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
   -->
 
 ## Key properties

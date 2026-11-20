@@ -108,13 +108,20 @@ class TestConvertDocument(unittest.TestCase):
                '- GH item [d](docs/a.md).\n'
                '  <!-- /github-only -->\n'
                '  <!-- pypi-only\n'
-               '- PyPI item [r](https://x.org).\n'
+               '  - PyPI item [r](https://x.org).\n'
                '  -->\n'
                'end\n')
         out = convert(src, 'v1.0.0')
         self.assertIn('- Common\n- PyPI item [r](https://x.org).\nend\n', out)
         self.assertNotIn('GH item', out)
         self.assertNotIn('-only', out)
+
+    def test_pypi_block_content_less_indented_than_marker_is_rejected(self):
+        """On GitHub, a less-indented line closes the list item the comment
+        opened in, leaving it unterminated: it would hide the rest of the page."""
+        src = '- A\n  <!-- pypi-only\n- B\n  -->\nrest\n'
+        with self.assertRaises(LatexError):
+            convert(src, 'v1.0.0')
 
     def test_inline_markers(self):
         src = ('- See <!-- github-only -->GH `code`<!-- /github-only -->'

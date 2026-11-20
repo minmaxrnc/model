@@ -22,8 +22,13 @@ to keep a list unbroken on GitHub:
     - Item shown on GitHub only
       <!-- /github-only -->
       <!-- pypi-only
-    - Item shown on PyPI only
+      - Item shown on PyPI only
       -->
+
+Everything inside a pypi-only block must be indented at least as much as its
+opening marker (that indentation is removed in the generated file): a less
+indented line would close the enclosing list item on GitHub, leaving the
+comment unterminated so that it hides the rest of the page. This is rejected.
 
 Inline form, within a line:
 
@@ -216,10 +221,24 @@ def _convert_line(line: str, ref: str, lineno: int) -> str:
     return LINK.sub(lambda m: m.group(1) + _absolute_link(m.group(2), ref) + m.group(3), line)
 
 
+def _unwrap_pypi_block(m) -> str:
+    """Content of a pypi-only block, without the opening marker's indentation."""
+    indent = re.match(r'[ \t]*', m.group(0)).group(0)
+    lines = m.group(1).splitlines(keepends=True)
+    for line in lines:
+        if line.strip() and not line.startswith(indent):
+            raise LatexError(
+                f"README.md: pypi-only block content {line.strip()!r} is indented less than "
+                f"its '<!-- pypi-only' marker; on GitHub that closes the enclosing list "
+                f"item and leaves the comment open, hiding the rest of the page"
+            )
+    return ''.join(l[len(indent):] if l.startswith(indent) else l for l in lines)
+
+
 def convert(markdown: str, ref: str) -> str:
     """README.md (GitHub flavour, LaTeX math) → README.pypi.md."""
     markdown = GITHUB_ONLY_BLOCK.sub('', markdown)
-    markdown = PYPI_ONLY_BLOCK.sub(lambda m: m.group(1), markdown)
+    markdown = PYPI_ONLY_BLOCK.sub(_unwrap_pypi_block, markdown)
     bad = MARKER_AT_LINE_START.search(markdown)
     if bad:
         lineno = markdown.count('\n', 0, bad.start()) + 1
