@@ -15,19 +15,19 @@ See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal 
 The MinMax algebra replaces addition and multiplication of real numbers with
 max and min:
 
-```
-a ⊕ b = max(a, b)        (MinMax "addition")
-a ⊗ b = min(a, b)        (MinMax "multiplication")
-```
+| Operation | Definition |
+|---|---|
+| MinMax "addition" | `a ⊕ b = max(a, b)` |
+| MinMax "multiplication" | `a ⊗ b = min(a, b)` |
 
 (the (max,min) semiring). Both operations extend to vectors and matrices in
 the usual way, with ⊕ in place of + and ⊗ in place of ×:
 
-```
-(x ⊕ y)ᵢ  = max(xᵢ, yᵢ)                    (vector "sum")
-(R ⊗ x)ᵢ  = maxⱼ min(Rᵢⱼ, xⱼ)              (matrix-vector "product")
-(R ⊗ Q)ᵢₖ = maxⱼ min(Rᵢⱼ, Qⱼₖ)             (matrix-matrix "product")
-```
+| Operation | Definition |
+|---|---|
+| vector "sum" | `(x ⊕ y)ᵢ = max(xᵢ, yᵢ)` |
+| matrix-vector "product" | `(R ⊗ x)ᵢ = maxⱼ min(Rᵢⱼ, xⱼ)` |
+| matrix-matrix "product" | `(R ⊗ Q)ᵢₖ = maxⱼ min(Rᵢⱼ, Qⱼₖ)` |
 
 ### The MinMax Map
 
@@ -35,8 +35,10 @@ A MinMax map on states of dimension d is the affine map of this algebra,
 parameterised by a matrix R ∈ Rᵈˣᵈ and a vector s ∈ Rᵈ:
 
 ```
-f(x) = (R ⊗ x) ⊕ s,      i.e.  f(x)ᵢ = max( maxⱼ min(Rᵢⱼ, xⱼ), sᵢ )
+f(x) = (R ⊗ x) ⊕ s
 ```
+
+i.e. `f(x)ᵢ = max(maxⱼ min(Rᵢⱼ, xⱼ), sᵢ)`.
 
 Every coordinate of f(x) is *selected* among the entries of x, R and s — never
 computed by arithmetic — so f keeps values bounded and passes them through
@@ -47,11 +49,13 @@ the lower bound s and the upper bound r:
 
 ```
 f(x) = max(min(r, x), s)
-
-x < s        →  f(x) = s         (lower clamp — signal injection)
-s ≤ x ≤ r    →  f(x) = x         (identity — memory preserved unchanged)
-x > r        →  f(x) = r         (upper clamp — saturation / forgetting)
 ```
+
+| Input | Output | Interpretation |
+|---|---|---|
+| `x < s` | `f(x) = s` | lower clamp — signal injection |
+| `s ≤ x ≤ r` | `f(x) = x` | identity — memory preserved unchanged |
+| `x > r` | `f(x) = r` | upper clamp — saturation / forgetting |
 
 (when r ≥ s; when r < s, f(x) = s for every x). For d > 1 the map also *routes*
 values between coordinates: coordinate i can take the value of coordinate j,
@@ -87,10 +91,10 @@ xₜ₊₁ = (Rₜ₊₁ ⊗ xₜ) ⊕ sₜ₊₁
 
 where both parameters are affine projections of the input:
 
-```
-Rₜ = reshape(Wᵣ uₜ, (d, d))      (d² outputs, reshaped to a matrix)
-sₜ = Wₛ uₜ                       (the lower bound — write / inject signal)
-```
+| Parameter | Definition | Role |
+|---|---|---|
+| `Rₜ` | `reshape(Wᵣ uₜ, (d, d))` | d² outputs, reshaped to a matrix |
+| `sₜ` | `Wₛ uₜ` | lower bound — write / inject signal |
 
 Rₜ is unconstrained: every entry is an independent linear function of uₜ, and
 no bounding is needed for stability, since the recurrence only ever *selects*
@@ -102,9 +106,12 @@ recurrence is the clamp above:
 
 ```
 xₜ₊₁ = max(min(rₜ₊₁, xₜ), sₜ₊₁)
-rₜ = Wᵣ uₜ      (upper bound — gate / forget signal)
-sₜ = Wₛ uₜ      (lower bound — write / inject signal)
 ```
+
+| Parameter | Definition | Role |
+|---|---|---|
+| `rₜ` | `Wᵣ uₜ` | upper bound — gate / forget signal |
+| `sₜ` | `Wₛ uₜ` | lower bound — write / inject signal |
 
 This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
 name `d_state`) gives every layer N scalar-state neurons, i.e. a state
@@ -122,10 +129,10 @@ the task needs but typically small; layers scale by having more neurons
 **Output.** Each neuron's state is projected back to the input space, and
 the outputs of all neurons in a layer are summed:
 
-```
-yₜ = Wₒ xₜ                            (output_gate=False)
-yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))               (output_gate=True)
-```
+| `output_gate` | Output |
+|---|---|
+| `False` | `yₜ = Wₒ xₜ` |
+| `True` (default) | `yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))` |
 
 ### Parallel Computation via Prefix Scan
 
