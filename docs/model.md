@@ -57,25 +57,26 @@ f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
 
 | Input | Output | Interpretation |
 |---|---|---|
-| $`x < s`$ | $`f(x) = s`$ | lower clamp — signal injection |
-| $`s \le x \le r`$ | $`f(x) = x`$ | identity — memory preserved unchanged |
-| $`x > r`$ | $`f(x) = r`$ | upper clamp — saturation / forgetting |
+| $`x < s`$ | $`f(x) = s`$ | lower clamp — set state to input value / store value into memory |
+| $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state / memory preserved unchanged |
+| $`x > r`$ | $`f(x) = r`$ | upper clamp — reset state / clear memory  |
 
-(when $`r \ge s`$; when $`r < s`$, $`f(x) = s`$ for every $`x`$). For $`d > 1`$ the map
-also *routes* values between coordinates: coordinate $`i`$ can take the value of
-coordinate $`j`$, limited by $`R_{ij}`$ — which is what lets a neuron permute its
-state.
+(when $`r \ge s`$; when $`r < s`$, $`f(x) = s`$ for every $`x`$). For $`d > 1`$ the map also
+*routes* values between coordinates: coordinate $`i`$ can take the value of coordinate $`j`$,
+limited by $`R_{ij}`$ — which is what lets a neuron permute its state.
 
 ### Composition Closure
 
-The composition of two MinMax maps is again a MinMax map, because $`\otimes`$ is
-associative and distributes over $`\oplus`$:
+The composition of two MinMax maps is again a MinMax map, because $`\otimes`$ is associative and
+distributes over $`\oplus`$:
 
 ```math
 \begin{aligned}
-f_2(f_1(x)) &= (R \otimes x) \oplus s, \quad \text{where} \\
-R &= R_2 \otimes R_1, \\
-s &= (R_2 \otimes s_1) \oplus s_2.
+f_2(f_1(x)) = (R \otimes x) \oplus s, 
+\qquad \text{where} 
+R = R_2 \otimes R_1,
+\quad
+s = (R_2 \otimes s_1) \oplus s_2.
 \end{aligned}
 ```
 
@@ -90,7 +91,7 @@ computed simultaneously in $`O(\log T)`$ depth.
 
 A MinMax neuron with state dimension $`d`$ maintains a hidden state $`x_t \in ℝ^d`$,
 updated at every step by a MinMax map whose parameters are computed from the
-current input $`u_{t+1} \in ℝ^I`$:
+current input $`u_{t+1} \in ℝ^m`$:
 
 ```math
 x_{t+1} = (R_{t+1} \otimes x_t) \oplus s_{t+1}
@@ -100,8 +101,8 @@ where both parameters are affine projections of the input:
 
 | Parameter | Definition | Role |
 |---|---|---|
-| $`R_t`$ | $`\mathrm{reshape}(W_r \cdot u_t, (d, d))`$ | $`d^2`$ outputs, reshaped to a matrix |
-| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — write / inject signal |
+| $`R_t`$ | $`\mathtt{reshape}(W_r \cdot u_t, (d, d))`$ | $`d^2`$ outputs, reshaped to a matrix |
+| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — set value / inject signal |
 
 $`R_t`$ is unconstrained: every entry is an independent linear function of $`u_t`$,
 and no bounding is needed for stability, since the recurrence only ever
@@ -117,7 +118,7 @@ x_{t+1} = \mathrm{max}(\mathrm{min}(r_{t+1}, x_t), s_{t+1})
 
 | Parameter | Definition | Role |
 |---|---|---|
-| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — gate / forget signal |
+| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — gate / reset signal |
 | $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — write / inject signal |
 
 This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
