@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alessandro Ronca
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+import warnings
+
 import torch
 import torch.nn as nn
 
@@ -76,7 +78,11 @@ class MinMaxRNC_LM(MinMaxRNC):
     def __init__(self, vocab_size: int, cfg: MinMaxRNCLMConfig):
         self.__lm_cfg   = cfg
         self.__vocab_size = vocab_size
-        backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type, ffn_dropout=cfg.ffn_dropout)
+        # replace() re-runs MinMaxRNCConfig.__post_init__; its warnings were
+        # already shown when the caller built cfg.backbone, so don't repeat them.
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type, ffn_dropout=cfg.ffn_dropout)
         super().__init__(backbone)   # calls reset() → MinMaxRNC.reset() then our additions
         self.__lm_reset()
 
@@ -97,10 +103,13 @@ class MinMaxRNC_LM(MinMaxRNC):
             small_init_init_(self.lm_head.weight, dim=d_model)
 
     def forward(self, tokens: torch.Tensor, unroll_steps: int, state=None, return_state: bool = False):
-        y, state = super().forward(
-            self.token_emb(tokens), unroll_steps, state=state, return_state=True
-        )
-        logits = self.lm_head(self.head_drop(y))
+        # Same model-level autocast as the backbone (no-op when amp_dtype is
+        # None), extended over the embedding and LM head; nesting is harmless.
+        with self._amp_ctx(tokens.device.type):
+            y, state = super().forward(
+                self.token_emb(tokens), unroll_steps, state=state, return_state=True
+            )
+            logits = self.lm_head(self.head_drop(y))
         if return_state:
             return logits, state
         return logits
