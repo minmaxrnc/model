@@ -339,18 +339,31 @@ def main(argv=None):
     files = synced_files()
     files[TARGET] = convert(files[SOURCE], release_ref())
     stale = [p for p, c in files.items() if not p.exists() or p.read_text() != c]
+    version = project_version()
+    checked = (
+        f"README.pypi.md matches README.md, and the version references "
+        f"({'; '.join(what for _, _, what in VERSIONED)}) are at {version}"
+    )
+
+    def reason(p):
+        if p == TARGET:
+            return "regenerated from README.md"
+        return f"version references set to {version} (pyproject.toml)"
+
     if args.check:
         for p in stale:
-            print(f"{p.relative_to(ROOT)} is out of date: run python scripts/build_pypi_readme.py",
-                  file=sys.stderr)
+            need = ("must be regenerated from README.md" if p == TARGET
+                    else f"version references must be set to {version} (pyproject.toml)")
+            print(f"OUT OF DATE: {p.relative_to(ROOT)}: {need}; "
+                  f"run python scripts/build_pypi_readme.py", file=sys.stderr)
         if not stale:
-            print(f"version references ({project_version()}) and README.pypi.md are up to date")
+            print(f"OK: {checked}.")
         return 1 if stale else 0
     for p in stale:
         p.write_text(files[p])
-        print(f"wrote {p.relative_to(ROOT)}")
+        print(f"Updated {p.relative_to(ROOT)}: {reason(p)}.")
     if not stale:
-        print("everything already up to date")
+        print(f"No changes needed: {checked}. Nothing was written.")
     return 0
 
 
