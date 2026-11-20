@@ -24,12 +24,12 @@ Resources:
   regular languages with neurons of larger state dimension)
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in any of the
   following ways. 
-  - In parallel over a whole sequence via parallel scan 
-    (*computational cost:* depth $`O(\log T)`$ and work $`O(T)`$). 
-  - Step by step via a recurrence (*computational cost:* constant compute and memory per token). 
+  - In parallel over a whole sequence via parallel scan—*computational cost:* depth $`O(\log(T))`$ 
+  and work $`O(T)`$. 
+  - Step by step via a recurrence—*computational cost:* constant compute and memory per token. 
   - By interleaving parallel and recurrence evaluation: parallel scan over chunks of $`k`$ steps, 
-    with recurrence across chunks 
-    (*computational cost:* depth $`O((T/k) \cdot \log k)`$ and work $`O(T \cdot \log k)`$). 
+    with recurrence across chunks—*computational cost:* depth $`O((T/k) \cdot \log(k))`$ 
+    and work $`O(T \cdot \log(k))`$). 
     The value of $`k`$ can be set with `unroll_steps`. 
     It is fully parallel when $`k = T`$, and fully recurrent when $`k = 1`$.
     All choices give identical results. 
