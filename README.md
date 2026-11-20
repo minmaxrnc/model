@@ -10,11 +10,12 @@ Resources:
   [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
   <!-- github-only -->
 - Documentation in [`docs/`](docs/model.md): [mathematical foundation](docs/foundations.md),
-  [architecture](docs/architecture.md), and [configuration and implementation](docs/configuration.md).
+  [architecture](docs/architecture.md), [configuration and implementation](docs/configuration.md),
+  and [upgrading from 0.3.0](docs/upgrading.md).
   <!-- /github-only -->
   <!-- pypi-only
   - [Repository](https://github.com/minmaxrnc/model), including the [documentation](docs/model.md) on the
-    mathematical foundation, architecture, and configuration.
+    mathematical foundation, architecture, configuration, and upgrading from 0.3.0.
   -->
 
 ## Key properties
@@ -28,8 +29,9 @@ Resources:
   languages with neurons of larger state dimension.
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in any of the
   following ways. 
-  - In parallel over a whole sequence via parallel scan. 
-    *Computational cost:* depth $`O(\log(T))`$ and work $`O(T)`$.
+  - In parallel over a whole sequence of length $`T`$ via parallel scan. 
+    *Computational cost:* depth $`O(\log(T))`$ and work $`O(T \cdot \log(T))`$
+    (a work-efficient scan would need only $`O(T)`$).
   - Step by step via a recurrence. 
     *Computational cost:* constant compute and memory per token. 
   - By interleaving parallel and recurrence evaluation: parallel scan over chunks of $`k`$ steps, 
@@ -54,24 +56,25 @@ Resources:
 
 ## The model
 
-Each layer contains three sub-modules applied sequentially with pre-norm and
-residual connections:
+Each layer contains three sub-modules, each applied to a normalised input (pre-norm). The
+convolution and the feed-forward network compute the input of the neurons, and only the neurons'
+output is added back to the residual stream:
 
-1. **Convolution** — one-step causal mixing.
+1. **Convolution** — short-range mixing that uses only the current and the previous token.
 2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax neurons** — the recurrent cells. A MinMax neuron updates its state $`x_t \in ℝ^d`$ by
-   the MinMax recurrence $`x_{t+1} = (R_{t+1} \otimes x_t) \oplus s_{t+1}`$
-   where the matrix $`R_{t+1} \in ℝ^{d \times d}`$ and the vector
-   $`s_{t+1} \in ℝ^d`$ are computed from the input to the neuron.
+3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state dimension $`d`$ updates
+   its state $`x_t \in ℝ^d`$ by the MinMax recurrence $`x_t = (R_t \otimes x_{t-1}) \oplus s_t`$
+   where the matrix $`R_t \in ℝ^{d \times d}`$ and the vector
+   $`s_t \in ℝ^d`$ are computed from the input to the neuron.
    MinMax recurrence is obtained from ordinary affine recurrence by replacing sum and product
    operations $`(+, \times)`$ on vectors and matrices with their MinMax counterparts $`(\oplus, \otimes)`$, 
    that replace scalar addition and multiplication with max and min, respectively,
    and extend the resulting operations to vectors and matrices in the usual way.
-   With $`d = 1`$ the state is a scalar and the recurrence can be written as
-   $`x_{t+1} = \mathrm{max}(\mathrm{min}(r_{t+1}, x_t), s_{t+1})`$;
+   With $`d = 1`$ the state and $`R_t = r_t`$ are scalars, and the recurrence can be written as
+   $`x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)`$;
    with larger $`d`$ the state coordinates interact. 
-   Each layer holds groups of neurons, of any state dimensions, evaluated with a parallel prefix
-   scan, and sums their outputs 
+   Each layer holds groups of neurons, of any state dimensions, and sums their outputs; the
+   neurons of a group are evaluated together, in parallel or step by step 
    (see [Neurons of any state dimension](#neurons-of-any-state-dimension)).
 
 
@@ -149,9 +152,15 @@ model = MinMaxRNC(cfg)
 
 | Preset   | `d_model` | `n_layers` | `scalar_neurons` | Parameters (backbone) | Parameters (LM, GPT-2 vocab) |
 |----------|-----------|------------|------------------|-----------------------|------------------------------|
-| `small`  | 90        | 2          | 40               | ~0.1 M                | ~4.6 M                       |
-| `medium` | 512       | 8          | 512              | ~16.6 M               | ~42.4 M                      |
-| `large`  | 728       | 12         | 1456             | ~75.9 M               | ~112.5 M                     |
+| `small`  | 90        | 2          | 40               | ~0.1 M                | ~4.7 M                       |
+| `medium` | 512       | 8          | 512              | ~20.8 M               | ~46.6 M                      |
+| `large`  | 728       | 12         | 1456             | ~88.6 M               | ~125.2 M                     |
+
+Counts are for the default configuration; the LM ties its embedding and output weights. With the
+gated convolution (`conv_type='gated'`), which replaces each layer's
+`Linear(2·d_model, d_model)` with a per-feature gate, they are ~0.1 / ~4.6 M (`small`),
+~16.6 / ~42.4 M (`medium`) and ~75.9 / ~112.5 M (`large`) — the latter being the 112M model
+mentioned above.
 
 ### Neurons of any state dimension
 
@@ -194,9 +203,10 @@ Things to know:
   `(B·num_neurons, T, d, d, d)` intermediate. Keep $`d`$ small (≈ 2–8) and
   scale with `num_neurons` and more groups instead.
 - **Evidence so far.** On group state-tracking benchmarks, neurons with
-  state dimension 3 learn $`S_3`$ and generalise to much longer sequences than seen in
-  training, but results vary across seeds; $`S_4`$ is solved only on some seeds,
-  and larger groups ($`A_5`$, $`S_5`$) have not been solved yet.
+  state dimension 3 learn the symmetric group $`S_3`$ (tracking the permutation of 3 elements)
+  and generalise to much longer sequences than seen in training, but results vary across seeds;
+  $`S_4`$ is solved only on some seeds, and the larger groups (the alternating group $`A_5`$ and
+  $`S_5`$) have not been solved yet.
 
 See the [mathematical foundation](docs/foundations.md#minmax-recurrence) for the maths.
 
