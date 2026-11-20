@@ -18,12 +18,12 @@ Resources:
   over a million tokens. (Formally: all star-free languages with scalar-state neurons, up to all
   regular languages with neurons of larger state dimension)
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in parallel over
-  a whole sequence with a prefix scan (O(log T) depth), step by step as a recurrence (constant
-  compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of k
-  steps, recurrent across chunks (O((T/k) · log k) depth). The value of k can be set 
-  with `unroll_steps`. It is fully parallel when k = T, and fully recurrent when k = 1.
+  a whole sequence with a prefix scan (O(log *T*) depth), step by step as a recurrence (constant
+  compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of *k*
+  steps, recurrent across chunks (O((*T*/*k*) · log *k*) depth). The value of *k* can be set 
+  with `unroll_steps`. It is fully parallel when *k* = *T*, and fully recurrent when *k* = 1.
   All choices give identical results. Typically one would train and prefill prompts in parallel,
-  then generate token by token, and use an intermediate k to process sequences too long to scan in
+  then generate token by token, and use an intermediate *k* to process sequences too long to scan in
   one go.
 - **Stable by construction.** States, activations, and gradients stay bounded, independently of how
   long the input sequence is, because the recurrence produces states by simply *selecting* scalars
@@ -44,15 +44,20 @@ residual connections:
 
 1. **Convolution** — one-step causal mixing.
 2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax neurons** — the recurrent cells. A MinMax neuron updates its state `x_t ∈ ℝᵈ` 
-   by the MinMax recurrence `x_{t+1} = (R_{t+1} ⊗ x_t) ⊕ s_{t+1}` where 
-   the matrix `R_{t+1} \in ℝᵈˣᵈ` and vector `s_{t+1} ∈ ℝᵈ` are computed from the input to the neuron.
+3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state dimension *d* updates
+   its state *x*<sub>*t*</sub> ∈ ℝ<sup>*d*</sup> by the MinMax recurrence
+
+   *x*<sub>*t*+1</sub> = (*R*<sub>*t*+1</sub> ⊗ *x*<sub>*t*</sub>) ⊕ *s*<sub>*t*+1</sub>
+
+   where the matrix *R*<sub>*t*+1</sub> ∈ ℝ<sup>*d*×*d*</sup> and the vector
+   *s*<sub>*t*+1</sub> ∈ ℝ<sup>*d*</sup> are computed from the input to the neuron.
    MinMax recurrence is obtained from ordinary affine recurrence by replacing sum and product
-   operations `(+,×)` on vectors and matrices with their MinMax counterparts `(⊕,⊗)`, 
+   operations (+, ×) on vectors and matrices with their MinMax counterparts (⊕, ⊗), 
    that replace scalar addition and multiplication with max and min, respectively,
    and extend the resulting operations to vectors and matrices in the usual way.
-   With `d = 1` the state is a scalar and the recurrence can be written as
-   `x_{t+1} = max(min(r_t, x_t), s_t)`; with larger `d` the state coordinates interact. 
+   With *d* = 1 the state is a scalar and the recurrence can be written as
+   *x*<sub>*t*+1</sub> = max(min(*r*<sub>*t*+1</sub>, *x*<sub>*t*</sub>), *s*<sub>*t*+1</sub>);
+   with larger *d* the state coordinates interact. 
    Each layer holds groups of neurons, of any state dimensions, evaluated with a parallel prefix
    scan, and sums their outputs 
    (see [Neurons of any state dimension](#neurons-of-any-state-dimension)).
@@ -138,10 +143,11 @@ model = MinMaxRNC(cfg)
 
 ### Neurons of any state dimension
 
-A MinMax neuron can have any state dimension `d`. Its state transition is a
-`d × d` matrix applied in the (max,min) semiring,
-`(R_t ⊗ x)_i = max_j min(R_t[i,j], x_j)`; a neuron with state dimension `d`
-can realise permutation semiautomata of degree `d`. Each layer holds one or
+A MinMax neuron can have any state dimension *d*. Its state transition is a
+*d* × *d* matrix applied in the (max, min) semiring,
+(*R* ⊗ *x*)<sub>*i*</sub> = max<sub>*j*</sub> min(*R*<sub>*ij*</sub>, *x*<sub>*j*</sub>);
+a neuron with state dimension *d* can realise permutation semiautomata of
+degree *d*. Each layer holds one or
 more **neuron groups**, each made of `num_neurons` neurons with the same
 state dimension, configured through `neurons` (and `d_state`, see below):
 
@@ -170,20 +176,21 @@ scan, and all neuron outputs of a layer are summed.
 Things to know:
 
 - **Cost.** Scalar-state neurons (`d_state=1`, in either form) use an
-  element-wise scan: O(T log T) work per neuron, exactly the 0.3.0
-  computation. For `d > 1` each scan step composes `d × d` matrices: work is
-  O(num_neurons · T log T · d³), and the scan materialises a
-  `(B·num_neurons, T, d, d, d)` intermediate. Keep `d` small (≈ 2–8) and
+  element-wise scan: O(*T* log *T*) work per neuron, exactly the 0.3.0
+  computation. For *d* > 1 each scan step composes *d* × *d* matrices: work is
+  O(`num_neurons` · *T* log *T* · *d*<sup>3</sup>), and the scan materialises a
+  `(B·num_neurons, T, d, d, d)` intermediate. Keep *d* small (≈ 2–8) and
   scale with `num_neurons` and more groups instead.
-- **`n_h > 0` is experimental.** It builds `R_t` as a product of `n_h`
+- **`n_h > 0` is experimental.** It builds *R*<sub>*t*</sub> as a product of `n_h`
   rank-1 corrections to the identity (DeltaProduct-style,
-  `∏ (I − β_i k_i k_iᵀ)`, optionally with `normalize_keys`), with fewer
+  ∏<sub>*i*</sub> (*I* − β<sub>*i*</sub> *k*<sub>*i*</sub> *k*<sub>*i*</sub><sup>⊤</sup>),
+  optionally with `normalize_keys`), with fewer
   parameters than the default unconstrained projection. It has produced no
   positive results in our experiments so far.
 - **Evidence so far.** On group state-tracking benchmarks, neurons with
-  state dimension 3 and `n_h=0` learn S3 and generalise to much longer sequences than seen in
-  training, but results vary across seeds; S4 is solved only on some seeds,
-  and larger groups (A5, S5) have not been solved yet.
+  state dimension 3 and `n_h=0` learn *S*<sub>3</sub> and generalise to much longer sequences than seen in
+  training, but results vary across seeds; *S*<sub>4</sub> is solved only on some seeds,
+  and larger groups (*A*<sub>5</sub>, *S*<sub>5</sub>) have not been solved yet.
 
 See [`docs/model.md`](docs/model.md#the-minmax-recurrence) for the maths.
 
