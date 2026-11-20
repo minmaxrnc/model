@@ -17,9 +17,10 @@ the symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or
 the symbol '$`*`$' denotes element-wise (Hadamard) product of vectors; 
 the symbol '$`\sigma`$' denotes the logistic sigmoid.
 
-The module tree of [`MinMaxRNC_LM`](../src/minmaxrnc/minmax_rnc_lm.py), as `attribute: Type` (the convention of PyTorch's
-`print(model)`), listed in data-flow order. `MinMaxRNC_LM` is a subclass of [`MinMaxRNC`](../src/minmaxrnc/minmax_rnc.py), the
-backbone: the backbone has the same tree without `token_emb`, `head_drop` and `lm_head`.
+The module tree of [`MinMaxRNC_LM`](../src/minmaxrnc/minmax_rnc_lm.py) is below, 
+as `attribute: Type`, listed in data-flow order. 
+`MinMaxRNC_LM` is a subclass of [`MinMaxRNC`](../src/minmaxrnc/minmax_rnc.py), 
+the backbone: the backbone has the same tree without `token_emb`, `head_drop` and `lm_head`.
 
 ```
 MinMaxRNC_LM

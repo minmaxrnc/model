@@ -210,7 +210,7 @@ s = \mathrm{max}(\mathrm{min}(r_2, s_1), s_2).
 ```
 
 
-### Outline of the Algorithm
+### Outline of the Computation
 
 Given an initial state $`x_0`$ and per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
 with each $`f_t`$ having parameters $`R_t`$ and $`s_t`$, 

@@ -25,7 +25,7 @@ Loss scaling for fp16 (`torch.amp.GradScaler`) stays with the caller.
 **`recurrence_dtype`** — the dtype in which every neuron computes its MinMax recurrence, i.e. the
 dtype of:
 
-- the scan's inputs: the parameters $`R_t`$ and $`s_t`$ (as produced by the input projections)
+- the scan's inputs: the inputs $`R_t`$ and $`s_t`$ (as produced by the input projections)
   and the incoming state ($`x_0`$, or the state carried from the previous chunk);
 - the intermediate prefix compositions;
 - the states $`x_1, \ldots, x_T`$ it computes, including the final state carried to the next
