@@ -7,23 +7,35 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 [Index](model.md) · [Mathematical foundation](foundations.md) · [Architecture](architecture.md) · [Configuration and implementation](configuration.md)
 
-Notation as in [Mathematical foundation](foundations.md): $`\cdot`$ is matrix multiplication,
-$`*`$ the element-wise product, $`\sigma`$ the logistic sigmoid.
+Notation as in [Mathematical foundation](foundations.md): 
+the symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or matrices; 
+the symbol '$`*`$' denotes element-wise (Hadamard) product of vectors; 
+the symbol '$`\sigma`$' denotes the logistic sigmoid.
+
+The module tree of `MinMaxRNC_LM`, as `attribute: Type` (the convention of PyTorch's
+`print(model)`), listed in data-flow order. `MinMaxRNC_LM` is a subclass of `MinMaxRNC`, the
+backbone: the backbone has the same tree without `token_emb`, `head_drop` and `lm_head`.
 
 ```
 MinMaxRNC_LM
-└── token_emb   : Embedding(vocab_size, d_model)
-└── MinMaxRNC   : backbone
-    ├── MinMaxLayer × n_layers
-    │   ├── norm_conv   → BasicConv / GatedConv
-    │   ├── norm_ffn    → FeedForward / GatedFeedForward
-    │   └── norm_neuron → Σ MinMaxNeuronGroup   (neuron: scalar_neurons shorthand,
-    │                                            neuron_groups: `neurons`)
-    └── postlayers_ffn  (optional)
-    └── postlayers_norm
-└── head_drop   : Dropout
-└── lm_head     : Linear(d_model, vocab_size)
+├── token_emb:            Embedding(vocab_size, d_model)
+├── layers:               ModuleList of n_layers × MinMaxLayer
+│   ├── norm_conv:        LayerNorm | RMSNorm | Identity
+│   ├── conv:             BasicConv | GatedConv
+│   ├── norm_ffn:         LayerNorm | RMSNorm | Identity
+│   ├── ffn:              FeedForward | GatedFeedForward
+│   ├── norm_neuron:      LayerNorm | RMSNorm | Identity
+│   ├── neuron:           MinMaxNeuron, the scalar_neurons scalar-state neurons (None if 0)
+│   └── neuron_groups:    ModuleList of MinMaxNeuronGroup, one per entry of `neurons`
+├── postlayers_ffn_norm:  LayerNorm | RMSNorm | Identity (None unless use_postlayers_ffn)
+├── postlayers_ffn:       FeedForward | GatedFeedForward (None unless use_postlayers_ffn)
+├── postlayers_norm:      LayerNorm | RMSNorm (None if postlayers_norm='none')
+├── head_drop:            Dropout
+└── lm_head:              Linear(d_model, vocab_size, bias=False), weights tied to token_emb by default
 ```
+
+In each layer, `neuron` and every member of `neuron_groups` read the same input,
+`norm_neuron(...)`, and their outputs are summed (see [MinMax Layer](#minmax-layer)).
 
 ## MinMax Neuron Groups
 

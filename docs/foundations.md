@@ -12,9 +12,9 @@ and
 [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 
 **Notation.** 
-The symbol $`\cdot`$ denotes ordinary multiplication over scalars, vectors, or matrices; 
-the symbol $`*`$ denotes element-wise (Hadamard) product of vectors; 
-the symbol $`\sigma`$ denotes the logistic sigmoid.
+The symbol '$`\cdot`$' denotes ordinary multiplication over scalars, vectors, or matrices; 
+the symbol '$`*`$' denotes element-wise (Hadamard) product of vectors; 
+the symbol '$`\sigma`$' denotes the logistic sigmoid.
 
 
 ## The MinMax Algebra
