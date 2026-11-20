@@ -141,37 +141,45 @@ Each coordinate $`f(x)_i`$ is *selected* among the coordinates of $`x`$, $`R`$, 
 so $`f`$ keeps values bounded since it passes them through unchanged.
 
 The map $`f`$ can *route* state coordinates: each coordinate $`f(x)_i`$ can take the value
-of $`x_j`$ for any chosen $`j`$ under an appropriate choice of $`R_{ij}`$ — which is what lets a
-neuron permute its state.
+of $`x_j`$ for any chosen $`j`$ under an appropriate choice of $`R_{ij}`$ — which is key for having
+highly-expressive models.
 
 
 ### Special case: Scalar MinMax Recurrence Maps ($`d = 1`$)
 
-Every MinMax Recurrence map over scalar states
+Every MinMax Recurrence map over scalar states has two regimes.
 
 ```math
 f(x) = \mathrm{max}(\mathrm{min}(r, x), s) 
-\qquad\text{for}\qquad r,s \in ℝ
+\qquad\text{with}\quad r,s \in ℝ.
 ```
 
-has two regimes:
+**Regime 1.** 
+When $`r \ge s`$, 
+the map $`f`$ is an (ordinary) piecewise-affine map that is constant in two regions of the state
+space and it is identity in ther third region.
 
-1. When  $`r \ge s`$, 
-   the map $`f`$ is a clamp between the lower bound $`s`$ and upper bound $`r`$.
+| State-space region | State update | Interpretation                     |
+|--------------------|--------------|------------------------------------|
+| $`(-\infty, s)`$   | $`f(x) = s`$ | constant — maps states to $`s`$    |
+| $`[s,r]`$          | $`f(x) = x`$ | identity — leaves states unchanged |
+| $`(r,\infty)`$     | $`f(x) = r`$ | constant — maps states to $`r`$    |
 
-| Case              | State update | Interpretation                     |
-|-------------------|--------------|------------------------------------|
-| $`x < s`$         | $`f(x) = s`$ | constant — maps states to $`s`$    |
-| $`s \le x \le r`$ | $`f(x) = x`$ | identity — leaves states unchanged |
-| $`x > r`$         | $`f(x) = r`$ | constant — maps states to $`r`$    |
+The fact that $`f`$ is the identity function on the state-space region $`[s,r]`$ makes MinMax
+Neurons capable of mantaining information perfectly for any arbitrary number of steps.
 
-2. When $`r < s`$, 
-   the map $`f`$ is the constant map $`f(x) = s`$ over the entire state space.
+**Regime 2.** 
+When $`r < s`$, the map $`f`$ is the constant map $`f(x) = s`$ over the entire state space.
+This makes MinMax Neurons capable of storing information provided as an input $`s`$.
 
 
 
 
 ## Parallel Computation via Prefix Scan
+
+The closure property described next is what makes the parallel scan possible: 
+instead of applying the recurrence maps $`f_1, f_2, \ldots, f_T`$ one by one in sequence, 
+all their prefix compositions can be computed simultaneously in parallel with depth $`O(\log T)`$.
 
 ### Composition Closure
 
@@ -199,18 +207,15 @@ s = \mathrm{max}(\mathrm{min}(r_2, s_1), s_2).
 \end{aligned}
 ```
 
-This closure property is what makes the parallel scan possible: 
-instead of applying $`f_1, f_2, \ldots, f_T`$ one by one in sequence, 
-all prefix compositions can be computed simultaneously in parallel with depth $`O(\log T)`$.
 
-
-### Parallel Evaluation
+### Outline of the Algorithm
 
 Given an initial state $`x_0`$ and per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
-with each $`f_t`$ having parameters $`R_t, s_t`$, 
-all states $`x_1, \ldots, x_T`$ can be computed in parallel:
+with each $`f_t`$ having parameters $`R_t`$ and $`s_t`$, 
+all states $`x_1, \ldots, x_T`$ given by the recurrence $`x_t = f_t(x_{t-1})`$ 
+can be computed in parallel:
 
-1. **Prefix compose** — compute, for each position $`t`$, the MinMax map
+1. **Prefix compose** — compute, for each position $`t`$, the MinMax Recurrence map
    $`F_t = f_t \circ f_{t-1} \circ \cdots \circ f_1`$ that maps $`x_0`$ to $`x_t`$,
    using composition closure. The current implementation uses the
    Hillis–Steele parallel prefix scan, with depth $`O(\log T)`$ and work
