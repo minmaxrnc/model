@@ -207,16 +207,36 @@ New in 0.4.0. Two independent settings, both off by default:
 | Setting | Values | Effect |
 |---|---|---|
 | `amp_dtype` | `None` (default), `'bf16'`, `'fp16'` | When set, `forward()` runs under `torch.autocast(device, dtype=…)` (the LM wrapper also covers the embedding and head). `None` leaves autocast to the caller, as in 0.3.0. |
-| `scan_dtype` | `'ambient'` (default), `'fp32'`, `'bf16'`, `'fp16'` | Precision of the MinMax scan. `'ambient'` does no casting (0.3.0 behaviour). The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision; the recurrent state is carried in that dtype. |
+| `scan_dtype` | `'ambient'` (default), `'fp32'`, `'bf16'`, `'fp16'` | Precision of the MinMax scan, in both the forward and the backward pass. `'ambient'` does no casting (0.3.0 behaviour). The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision; the recurrent state is carried in that dtype. |
+
+What the scan's precision affects:
+
+- **Forward pass: only if the scan is *less* precise than its inputs.** The scan
+  only *selects* among its inputs (min/max), never computes new values. Under
+  bf16 AMP its inputs are already bf16, so running it in fp32 gives bitwise the
+  same outputs as running it in bf16 (except for a learned initial state, which
+  a bf16 scan rounds). In an fp32 model, a bf16 scan does round its inputs.
+- **Backward pass: gradient accumulation.** A value that is selected and held
+  for many steps receives a gradient contribution from each of them, summed in
+  the scan's dtype. An fp32 scan sums them accurately even under bf16 AMP; a
+  bf16 scan sums them with bf16's ~3 significant digits, which matters most for
+  values held over long ranges.
+- **Cost.** The scan is memory-bandwidth bound (min/max, no tensor cores) and
+  its intermediates are a large share of activation memory for long
+  sequences, so a 4-byte dtype costs about twice a 2-byte one.
 
 Common recipes:
 
-| Goal | `amp_dtype` | `scan_dtype` |
-|---|---|---|
-| Full precision / 0.3.0 behaviour (default) | `None` | `'ambient'` |
-| bf16 AMP, full-precision scan | `'bf16'` | `'fp32'` |
-| Fully bf16, scan included | `'bf16'` | `'bf16'` |
-| bf16 AMP, fp16 scan (untested) | `'bf16'` | `'fp16'` |
+| Goal | `amp_dtype` | `scan_dtype` | Effect |
+|---|---|---|---|
+| Full precision / 0.3.0 behaviour (default) | `None` | `'ambient'` | everything in fp32 |
+| bf16 AMP, fp32 scan | `'bf16'` | `'fp32'` | same forward as a bf16 scan; scan gradients summed in fp32; more scan memory |
+| Fully bf16, scan included | `'bf16'` | `'bf16'` | least memory; scan gradients summed in bf16 |
+| fp32 model, bf16 scan | `None` | `'bf16'` | only the scan in bf16: it rounds its inputs, saving scan memory and bandwidth |
+| bf16 AMP, fp16 scan (untested) | `'bf16'` | `'fp16'` | bf16 values fit fp16 exactly within its range; finer gradient sums than bf16, but overflow above 65504 |
+
+How much the more accurate gradients of an fp32 scan help training has not
+been measured yet; validate `'bf16'` against `'fp32'` on your task.
 
 ```python
 import dataclasses
@@ -228,14 +248,6 @@ model = MinMaxRNC(cfg)
 
 Notes:
 
-- The scan is a chain of element-wise min/max selections, not a matmul: it
-  gets no tensor-core speed-up and is memory-bandwidth bound, so its dtype's
-  byte width largely sets its cost. `'fp32'` is the safest choice but gives
-  back part of the bf16 speed-up; `'bf16'` is fastest, but its 8-bit
-  mantissa blurs the fine value distinctions the min/max routing relies on.
-  `'fp16'` has the same width as bf16 with a 10-bit mantissa (but a smaller
-  range). Validate accuracy against `'fp32'` before relying on `'bf16'` or
-  `'fp16'`.
 - With `scan_dtype='ambient'` under autocast (the 0.3.0 behaviour) the scan
   runs on bf16 projections with an fp32 initial state, so its precision is
   mixed and implicit; pick a pinned `scan_dtype` to make it explicit.
