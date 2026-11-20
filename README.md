@@ -20,10 +20,11 @@ Resources:
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in parallel over
   a whole sequence with a prefix scan (O(log T) depth), step by step as a recurrence (constant
   compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of k
-  steps, recurrent across chunks (O((T/k) · log k) depth). Set k with `unroll_steps`. k = T is fully
-  parallel, k = 1 fully recurrent, and all choices give identical results. Typically you'd train and
-  prefill prompts in parallel, then generate token by token, and use an intermediate k to process
-  sequences too long to scan in one go.
+  steps, recurrent across chunks (O((T/k) · log k) depth). The value of k can be set 
+  with `unroll_steps`. It is fully parallel when k = T, and fully recurrent when k = 1.
+  All choices give identical results. Typically one would train and prefill prompts in parallel,
+  then generate token by token, and use an intermediate k to process sequences too long to scan in
+  one go.
 - **Stable by construction.** States, activations, and gradients stay bounded, independently of how
   long the input sequence is, because the recurrence produces states by simply *selecting* scalars
   from the previous state or current inputs (via min and max operations). 
