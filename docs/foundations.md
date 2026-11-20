@@ -77,26 +77,38 @@ x_t = \mathrm{max}\bigl(\mathrm{min}(r_t, x_{t-1}), s_t\bigr)
 with reset and set given by 
 
 ```math
-r_t = w_\mathrm{r} \cdot u_t + b_\mathrm{r}
-\qquad\text{and}\qquad
-s_t = w_\mathrm{s} \cdot u_t + b_\mathrm{s},
-\qquad\text{ for}\qquad
-w_\mathrm{r}, w_\mathrm{s} \in ℝ^m,
+\begin{align}
+r_t & = w_\mathrm{r} \cdot u_t + b_\mathrm{r},
+\qquad&&
+w_\mathrm{r} \in ℝ^m,
 \quad
-b_\mathrm{r}, b_\mathrm{s} \in ℝ.
+b_\mathrm{r} \in ℝ,
+\\
+s_t & = w_\mathrm{s} \cdot u_t + b_\mathrm{s},
+\qquad&&
+w_\mathrm{s} \in ℝ^m,
+\quad
+b_\mathrm{s} \in ℝ.
+\end{align}
 ```
 
 `MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ of such neurons. 
-Stacking their states, weights and biases, the layer has states $`x^\mathrm{l}_t \in ℝ^N`$ with 
+Stacking their states, weights and biases, the layer has states $`x^{(\ell)}_t \in ℝ^N`$ with 
 
 ```math
-r^\mathrm{l}_t = W^\mathrm{l}_\mathrm{r} \cdot u_t + b^\mathrm{l}_\mathrm{r}
-\qquad\text{and}\qquad
-s^\mathrm{l}_t = W^\mathrm{l}_\mathrm{s} \cdot u_t + b^\mathrm{l}_\mathrm{s}
-\qquad\text{ for}\qquad
-W^\mathrm{l}_\mathrm{r}, W^\mathrm{l}_\mathrm{s} \in ℝ^{N \times m},
+\begin{align*}
+r^{(\ell)}_t & = W^{(\ell)}_\mathrm{r} \cdot u_t + b^{(\ell)}_\mathrm{r},
+\qquad&&
+W^{(\ell)}_\mathrm{r} \in ℝ^{N \times m},
 \quad
-b^\mathrm{l}_\mathrm{r}, b^\mathrm{l}_\mathrm{s} \in ℝ^N,
+b^{(\ell)}_\mathrm{r} \in ℝ^N,
+\\
+s^{(\ell)}_t & = W^{(\ell)}_\mathrm{s} \cdot u_t + b^{(\ell)}_\mathrm{s},
+\qquad&&
+W^{(\ell)}_\mathrm{s} \in ℝ^{N \times m},
+\quad
+b^{(\ell)}_\mathrm{s} \in ℝ^N,
+\end{align*}
 ```
 
 and the recurrence above holds element-wise, one coordinate per neuron. 
@@ -121,7 +133,7 @@ parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`
 
 ```math
 f(x) = (R \otimes x) \oplus s,
-\qquad\text{ i.e., coordinate-wise,}\qquad
+\quad\qquad\text{i.e., coordinate-wise,}\qquad
 f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
 
