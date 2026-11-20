@@ -132,7 +132,7 @@ from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
-    d_state          = 192,       # 192 scalar-state neurons per layer
+    scalar_neurons   = 192,       # 192 scalar-state neurons per layer
     norm             = 'rmsnorm',
     ffn_type         = 'gated',
     ffn_act_fn       = 'swish',   # → SwiGLU
@@ -144,11 +144,11 @@ model = MinMaxRNC(cfg)
 
 #### Preset sizes
 
-| Preset   | `d_model` | `n_layers` | `d_state` | Parameters (backbone) | Parameters (LM, GPT-2 vocab) |
-|----------|-----------|------------|-----------|-----------------------|------------------------------|
-| `small`  | 90        | 2          | 40        | ~0.1 M                | ~4.6 M                       |
-| `medium` | 512       | 8          | 512       | ~16.6 M               | ~42.4 M                      |
-| `large`  | 728       | 12         | 1456      | ~75.9 M               | ~112.5 M                     |
+| Preset   | `d_model` | `n_layers` | `scalar_neurons` | Parameters (backbone) | Parameters (LM, GPT-2 vocab) |
+|----------|-----------|------------|------------------|-----------------------|------------------------------|
+| `small`  | 90        | 2          | 40               | ~0.1 M                | ~4.6 M                       |
+| `medium` | 512       | 8          | 512              | ~16.6 M               | ~42.4 M                      |
+| `large`  | 728       | 12         | 1456             | ~75.9 M               | ~112.5 M                     |
 
 ### Neurons of any state dimension
 
@@ -158,7 +158,7 @@ $`(R \otimes x)_i = \mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$;
 a neuron with state dimension $`d`$ can realise permutation semiautomata of
 degree $`d`$. Each layer holds one or
 more **neuron groups**, each made of `num_neurons` neurons with the same
-state dimension, configured through `neurons` (and `d_state`, see below):
+state dimension, configured through `neurons` and `scalar_neurons`:
 
 ```python
 from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
@@ -166,7 +166,7 @@ from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
 cfg = MinMaxRNCConfig(
     d_model = 90,
     n_layers = 2,
-    d_state = 64,                                   # 64 scalar-state neurons
+    scalar_neurons = 64,                            # 64 scalar-state neurons
     neurons = [
         NeuronGroup(d_state=3, num_neurons=16),     # 16 neurons with 3-dimensional state
         (4, 2),                                     # tuple shorthand: d_state=4, num_neurons=2
@@ -177,14 +177,14 @@ model = MinMaxRNC(cfg)
 
 Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1, n_h=0,
 normalize_keys=False)` or the equivalent tuple/list (handy for YAML configs).
-`MinMaxRNCConfig.d_state = N` is shorthand for the group
-`NeuronGroup(d_state=1, num_neurons=N)` — `N` scalar-state neurons — and is
-how 0.3.0 configured a layer. Each group runs as a single batched parallel
-scan, and all neuron outputs of a layer are summed.
+`scalar_neurons = N` is shorthand for the group
+`NeuronGroup(d_state=1, num_neurons=N)`: `N` scalar-state neurons. Each group
+runs as a single batched parallel scan, and all neuron outputs of a layer are
+summed.
 
 Things to know:
 
-- **Cost.** Scalar-state neurons (`d_state=1`, in either form) use an
+- **Cost.** Scalar-state neurons (`scalar_neurons`, or groups with `d_state=1`) use an
   element-wise scan: $`O(T \log T)`$ work per neuron, exactly the 0.3.0
   computation. For $`d > 1`$ each scan step composes $`d \times d`$ matrices: work is
   $`O(K \cdot T \log T \cdot d^3)`$ for $`K`$ = `num_neurons`, and the scan materialises a
@@ -252,8 +252,10 @@ Notes:
 
 - **Same API.** Every 0.3.0 class, config field and argument keeps its name,
   position and meaning, including positional `MinMaxRNCConfig(d_model,
-  n_layers, d_state)`. New config fields are appended after the existing
-  ones and default to the 0.3.0 behaviour (`neurons=()`,
+  n_layers, d_state)`. `d_state` is now the legacy name of `scalar_neurons`:
+  `d_state=N` and `scalar_neurons=N` build exactly the same model (set at most
+  one of them). New config fields are appended after the existing ones and
+  default to the 0.3.0 behaviour (`scalar_neurons=0`, `neurons=()`,
   `scan_dtype='ambient'`, `amp_dtype=None`). `MinMaxNeuron(cfg)` still
   builds the layer's `cfg.d_state` scalar-state neurons; it is now a special
   case of the new `MinMaxNeuronGroup`, which implements neurons of any state
@@ -270,13 +272,13 @@ Notes:
 - **Recurrent state format.** Per layer it is still
   `{'neuron': …, 'conv': …}`; models with `neurons` groups add a
   `'neuron_groups': [...]` entry (one `(B, num_neurons · d_state)` state per
-  group), and models with `d_state=0` have no `'neuron'` entry.
+  group), and models without scalar neurons have no `'neuron'` entry.
 - **Small behaviour changes**, only for configs 0.3.0 rejected anyway:
   `d_state` now defaults to 0, so leaving it out raises a `ValueError`
-  (instead of a `TypeError`) unless `neurons` is given; invalid
+  (instead of a `TypeError`) unless `scalar_neurons` or `neurons` is given; invalid
   `scan_dtype`/`amp_dtype` values raise `ValueError`.
 - **From the matrix-neuron experiment branch**, rename config keys
-  `diagonal_d_state → d_state` and `d_states → neurons` (the
+  `diagonal_d_state → scalar_neurons` and `d_states → neurons` (the
   `(d_state, num_neurons, n_h)` triples are accepted as-is), plus the global
   `normalize_keys` becomes a per-group field. Its checkpoints use different
   parameter names (`neurons.N.*`) and do not load directly.
@@ -292,16 +294,23 @@ pytest
 ## How to cite
 
 ```bibtex
-@misc{ronca2026minmaxpaper,
-      title={{MinMax} Recurrent Neural Cascades},
-      author={Alessandro Ronca},
-      year={2026},
-      eprint={2605.06384},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2605.06384},
+@inproceedings{ronca2026minmax,
+  title={MinMax Recurrent Neural Cascades},
+  author={Alessandro Ronca},
+  booktitle={NeurIPS 2026},
+  year={2026},
+  url={https://openreview.net/forum?id=8sPcuoX2cj}
 }
-@software{ronca2026minmaxcode,
+@misc{ronca2026minmax-arxiv,
+  title={{MinMax} Recurrent Neural Cascades},
+  author={Alessandro Ronca},
+  year={2026},
+  eprint={2605.06384},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  url={https://arxiv.org/abs/2605.06384},
+}
+@software{ronca2026minmax-code,
   author  = {Alessandro Ronca},
   title   = {{MinMax} Recurrent Neural Cascades},
   year    = {2026},

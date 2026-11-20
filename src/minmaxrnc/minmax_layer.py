@@ -32,7 +32,7 @@ class MinMaxLayerConfig:
     ------
     neuron : MinMaxNeuronConfig | None
         Config for the layer's scalar-state neurons (the 0.3.0 MinMax Neuron:
-        MinMaxRNCConfig.d_state of them), or None for none (new in 0.4.0;
+        MinMaxRNCConfig.scalar_neurons of them), or None for none (new in 0.4.0;
         the layer must then have neuron_groups).
     conv : BasicConvConfig | GatedConvConfig
         Config for the short-range convolution applied before the FFN.
@@ -83,7 +83,7 @@ class MinMaxLayer(nn.Module):
         output    = u + neur_out
 
     Neuron is the sum of the outputs of all the layer's MinMax neuron groups,
-    all fed the same input: `neuron` (the MinMaxRNCConfig.d_state shorthand
+    all fed the same input: `neuron` (the MinMaxRNCConfig.scalar_neurons shorthand
     for a group of scalar-state neurons, if present) and each of
     `neuron_groups`. All groups are MinMaxNeuronGroup instances and are
     handled identically; `neuron` is a separate attribute only so that

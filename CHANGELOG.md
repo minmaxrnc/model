@@ -14,8 +14,8 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   (max,min) semiring; d = 1 is the scalar-state neuron of 0.3.0.
   `MinMaxRNCConfig.neurons` adds groups of such neurons to every layer, each
   a `NeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or an
-  equivalent tuple/list; `MinMaxRNCConfig.d_state = N` is shorthand for the
-  group `NeuronGroup(1, N)`.
+  equivalent tuple/list. `MinMaxRNCConfig.scalar_neurons = N` is shorthand
+  for the group `NeuronGroup(1, N)`: N scalar-state neurons.
   - New module `MinMaxNeuronGroup` / `MinMaxNeuronGroupConfig`, the single
     implementation for all state dimensions. Each group runs as one batched
     parallel scan: element-wise for d = 1 (the 0.3.0 computation, op for op),
@@ -34,8 +34,8 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   (default, the caller controls autocast as before), `'bf16'` or `'fp16'` to
   run `forward()` under `torch.autocast` (for the LM wrapper including the
   embedding and LM head).
-- `MinMaxRNCConfig.neuron_groups`, `.num_neurons_per_layer` and
-  `.state_size_per_layer` properties.
+- `MinMaxRNCConfig.neuron_groups`, `.num_scalar_neurons`,
+  `.num_neurons_per_layer` and `.state_size_per_layer` properties.
 - `MinMaxNeuronConfig.scan_dtype`, `MinMaxNeuronConfig._state_size_in_layer`
   and `MinMaxNeuronConfig.to_group_config()` (appended fields; defaults
   reproduce 0.3.0).
@@ -63,11 +63,15 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
 - `MinMaxNeuron` is now a subclass of `MinMaxNeuronGroup`: the group of
   `cfg.d_state` scalar-state neurons. Its parameters, initialisation and
   computation are unchanged.
-- `MinMaxRNCConfig.d_state` now defaults to `0` (no scalar-state shorthand
-  group). Configs that set it behave exactly as before; leaving it out
-  without `neurons` now raises `ValueError` (0.3.0 raised `TypeError`).
+- `MinMaxRNCConfig.d_state` is now the legacy name of `scalar_neurons`:
+  `d_state=N` builds exactly the same model as `scalar_neurons=N` (setting
+  both raises `ValueError`); `num_scalar_neurons` gives the count either way.
+  It now defaults to `0`: configs that set it behave exactly as before;
+  leaving it out without `scalar_neurons` or `neurons` now raises
+  `ValueError` (0.3.0 raised `TypeError`). The presets still set it, so
+  `preset.d_state` keeps its 0.3.0 value.
 - `MinMaxLayerConfig.neuron` may be `None` (a layer with only `neuron_groups`).
 - The per-layer recurrent state gains a `'neuron_groups'` entry only for
-  models with `neurons` groups, and has no `'neuron'` entry when `d_state=0`;
-  `d_state`-only models keep exactly the 0.3.0 structure.
+  models with `neurons` groups, and has no `'neuron'` entry without scalar
+  neurons; models with only scalar neurons keep exactly the 0.3.0 structure.
 - Invalid `scan_dtype` / `amp_dtype` values raise `ValueError`.

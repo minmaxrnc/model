@@ -10,6 +10,7 @@ TestMinMaxMatrixOperator   — apply_matrix / compose_matrix correctness
 TestMinMaxMatrixScan       — matrix parallel scan vs sequential reference
 TestGroupBatching          — num_neurons > 1 ≡ separate neurons summed
 TestScalarStateGroups      — d_state = 1: element-wise path, ≡ 0.3.0 neuron, ≡ matrix path
+TestScalarNeuronsField     — MinMaxRNCConfig.scalar_neurons ≡ its legacy name d_state
 TestLowRankTransition      — n_h > 0 rank-1-product parametrisation of R_t
 TestOutputInitScaling      — wang_init_ scaling by the layer's total state size
 TestNeuronsConfig          — MinMaxRNCConfig.neurons parsing and validation
@@ -272,6 +273,63 @@ class TestScalarStateGroups(unittest.TestCase):
                 with torch.no_grad():
                     torch.testing.assert_close(a(u, 4), b(u, 4), rtol=0, atol=0)
                 self.assertEqual(_aten_ops(lambda x: a(x, 4), u), _aten_ops(lambda x: b(x, 4), u))
+
+
+# ---------------------------------------------------------------------------
+# scalar_neurons and its legacy name d_state
+# ---------------------------------------------------------------------------
+
+class TestScalarNeuronsField(unittest.TestCase):
+
+    def test_scalar_neurons_equals_d_state(self):
+        """scalar_neurons=N and d_state=N build the same model: same parameter
+        names and seeded values, same outputs, same computation graph."""
+        for kw in ({}, dict(neurons=[(3, 2)])):
+            with self.subTest(extra=kw):
+                torch.manual_seed(0)
+                a = MinMaxRNC(MinMaxRNCConfig(16, 2, scalar_neurons=8, **kw)).eval()
+                torch.manual_seed(0)
+                b = MinMaxRNC(MinMaxRNCConfig(16, 2, d_state=8, **kw)).eval()
+                sa, sb = a.state_dict(), b.state_dict()
+                self.assertEqual(list(sa), list(sb))
+                self.assertTrue(all(torch.equal(sa[k], sb[k]) for k in sa))
+                u = torch.randn(2, 9, 16)
+                with torch.no_grad():
+                    torch.testing.assert_close(a(u, 4), b(u, 4), rtol=0, atol=0)
+                self.assertEqual(_aten_ops(lambda x: a(x, 4), u), _aten_ops(lambda x: b(x, 4), u))
+
+    def test_checkpoints_interchangeable(self):
+        a = MinMaxRNC(MinMaxRNCConfig(16, 2, scalar_neurons=8))
+        b = MinMaxRNC(MinMaxRNCConfig(16, 2, 8))
+        b.load_state_dict(a.state_dict(), strict=True)
+        a.load_state_dict(b.state_dict(), strict=True)
+
+    def test_num_scalar_neurons_and_groups(self):
+        for cfg in (MinMaxRNCConfig(16, 1, scalar_neurons=8), MinMaxRNCConfig(16, 1, d_state=8)):
+            with self.subTest(cfg=cfg):
+                self.assertEqual(cfg.num_scalar_neurons, 8)
+                self.assertEqual(cfg.neuron_groups, (NeuronGroup(1, 8),))
+                self.assertIsInstance(MinMaxRNC(cfg).layers[0].neuron, MinMaxNeuron)
+
+    def test_both_set_is_rejected(self):
+        with self.assertRaises(ValueError):
+            MinMaxRNCConfig(16, 1, d_state=8, scalar_neurons=8)
+
+    def test_negative_or_missing_is_rejected(self):
+        with self.assertRaises(ValueError):
+            MinMaxRNCConfig(16, 1, scalar_neurons=-1)
+        with self.assertRaises(ValueError):
+            MinMaxRNCConfig(16, 1)                    # no neurons at all
+
+    def test_scalar_neurons_only_with_groups(self):
+        cfg = MinMaxRNCConfig(16, 1, scalar_neurons=4, neurons=[(3, 2)])
+        self.assertEqual(cfg.state_size_per_layer, 4 + 6)
+        out = MinMaxRNC(cfg)(torch.randn(1, 5, 16), 5)
+        self.assertEqual(out.shape, (1, 5, 16))
+
+    def test_lm_wrapper(self):
+        lm = MinMaxRNC_LM(20, MinMaxRNCLMConfig(backbone=MinMaxRNCConfig(16, 2, scalar_neurons=8)))
+        self.assertEqual(lm(torch.randint(0, 20, (2, 5)), 5).shape, (2, 5, 20))
 
 
 # ---------------------------------------------------------------------------

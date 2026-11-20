@@ -10,52 +10,83 @@ See [arxiv.org/abs/2605.06384](https://arxiv.org/abs/2605.06384) for the formal 
 
 ## Mathematical Foundation
 
-### The MinMax Operator
+### The MinMax Algebra
 
-The MinMax operator is a function f : R → R parameterised by two scalars
-a (upper bound) and b (lower bound):
-
-```
-f(x) = max(min(a, x), b)
-```
-
-Applied elementwise to vectors, it acts as a soft clamp:
+The MinMax algebra replaces addition and multiplication of real numbers with
+max and min:
 
 ```
-x < b        →  f(x) = b         (lower clamp — signal injection)
-b ≤ x ≤ a    →  f(x) = x         (identity — memory preserved unchanged)
-x > a        →  f(x) = a         (upper clamp — saturation / forgetting)
+a ⊕ b = max(a, b)        (MinMax "addition")
+a ⊗ b = min(a, b)        (MinMax "multiplication")
 ```
+
+(the (max,min) semiring). Both operations extend to vectors and matrices in
+the usual way, with ⊕ in place of + and ⊗ in place of ×:
+
+```
+(x ⊕ y)ᵢ  = max(xᵢ, yᵢ)                    (vector "sum")
+(R ⊗ x)ᵢ  = maxⱼ min(Rᵢⱼ, xⱼ)              (matrix-vector "product")
+(R ⊗ Q)ᵢₖ = maxⱼ min(Rᵢⱼ, Qⱼₖ)             (matrix-matrix "product")
+```
+
+### The MinMax Map
+
+A MinMax map on states of dimension d is the affine map of this algebra,
+parameterised by a matrix R ∈ Rᵈˣᵈ and a vector s ∈ Rᵈ:
+
+```
+f(x) = (R ⊗ x) ⊕ s,      i.e.  f(x)ᵢ = max( maxⱼ min(Rᵢⱼ, xⱼ), sᵢ )
+```
+
+Every coordinate of f(x) is *selected* among the entries of x, R and s — never
+computed by arithmetic — so f keeps values bounded and passes them through
+unchanged.
+
+**Scalar case (d = 1).** With a scalar r = R, the map is a clamp between
+the lower bound s and the upper bound r:
+
+```
+f(x) = max(min(r, x), s)
+
+x < s        →  f(x) = s         (lower clamp — signal injection)
+s ≤ x ≤ r    →  f(x) = x         (identity — memory preserved unchanged)
+x > r        →  f(x) = r         (upper clamp — saturation / forgetting)
+```
+
+(when r ≥ s; when r < s, f(x) = s for every x). For d > 1 the map also *routes*
+values between coordinates: coordinate i can take the value of coordinate j,
+limited by Rᵢⱼ — which is what lets a neuron permute its state.
 
 ### Composition Closure
 
-The composition of two MinMax operators is again a MinMax operator:
+The composition of two MinMax maps is again a MinMax map, because ⊗ is
+associative and distributes over ⊕:
 
 ```
-f₂(f₁(x))  =  max(min(aₒ, x), bₒ)
+f₂(f₁(x)) = (R ⊗ x) ⊕ s
 
-  aₒ = min(a₂, a₁)
-  bₒ = max(min(a₂, b₁), b₂)
+  R = R₂ ⊗ R₁
+  s = (R₂ ⊗ s₁) ⊕ s₂
 ```
+
+In the scalar case this reads r = min(r₂, r₁) and s = max(min(r₂, s₁), s₂).
 
 This closure property is what makes the parallel scan possible: instead of
-applying f₁, f₂, …, fₜ one by one, we can compose all prefix products
+applying f₁, f₂, …, f_T one by one, all prefix compositions can be computed
 simultaneously in O(log T) depth.
 
 ### The MinMax Recurrence
 
 A MinMax neuron with state dimension d maintains a hidden state xₜ ∈ Rᵈ,
-updated by the MinMax recurrence — the affine recurrence of the (max,min)
-semiring, where max plays the role of addition and min of multiplication:
+updated at every step by a MinMax map whose parameters are computed from the
+current input uₜ₊₁ ∈ Rᴵ:
 
 ```
-x_{t+1} = max(Rₜ ⊗ xₜ, sₜ)
-(R ⊗ x)ᵢ = maxⱼ min(Rᵢⱼ, xⱼ)       (matrix-vector product in the (max,min) semiring)
+xₜ₊₁ = (Rₜ₊₁ ⊗ xₜ) ⊕ sₜ₊₁
 ```
 
-where Rₜ ∈ Rᵈˣᵈ and sₜ ∈ Rᵈ are computed from the current input uₜ ∈ Rᴵ.
-`sₜ = Wₛ uₜ` (the lower bound — write / inject signal). Rₜ is built one of two
-ways, selected by `n_h`:
+with `sₜ = Wₛ uₜ` (the lower bound — write / inject signal). Rₜ is built one of
+two ways, selected by `n_h`:
 
 ```
 n_h = 0 (default):  Rₜ = reshape(Wᵣ uₜ, (d, d))    (d² outputs, reshaped to a matrix)
@@ -90,29 +121,20 @@ gradients across all `d` entries of `kᵢ` (they jointly determine one shared
 norm). Only affects neuron groups with `n_h > 0`.
 
 **Scalar-state neurons (d = 1).** With d = 1, Rₜ = rₜ is a scalar and the
-recurrence becomes
+recurrence is the clamp above:
 
 ```
-x_{t+1} = max(min(rₜ, xₜ), sₜ)
+xₜ₊₁ = max(min(rₜ₊₁, xₜ), sₜ₊₁)
 rₜ = Wᵣ uₜ      (upper bound — gate / forget signal)
 sₜ = Wₛ uₜ      (lower bound — write / inject signal)
 ```
 
-This is the neuron of 0.3.0: `MinMaxRNCConfig.d_state = D` gives every layer
-D scalar-state neurons, i.e. a state xₜ ∈ Rᴰ updated element-wise. Scalar-state
-neurons are evaluated with a dedicated element-wise scan, so their cost per
-step is O(1) per neuron. More generally, a d × d matrix whose off-diagonal
-entries are -∞ decouples the coordinates into d scalar-state neurons.
-
-**Closure under composition.** The (max,min)-semiring matrix product ⊗ is
-associative and distributes over element-wise max, so the composition of two
-MinMax maps is again a MinMax map — exactly as in the scalar case above:
-
-```
-f₂(f₁(x)) = max(R ⊗ x, s)
-  R = R₂ ⊗ R₁,  (R₂ ⊗ R₁)ᵢₖ = maxⱼ min(R₂ᵢⱼ, R₁ⱼₖ)
-  s = max(R₂ ⊗ s₁, s₂)
-```
+This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
+name `d_state`) gives every layer N scalar-state neurons, i.e. a state
+xₜ ∈ Rᴺ updated element-wise. Scalar-state neurons are evaluated with a
+dedicated element-wise scan, so their cost per step is O(1) per neuron.
+Conversely, a d × d matrix whose off-diagonal entries are -∞ decouples the
+coordinates into d scalar-state neurons.
 
 **Cost.** Per neuron, parameters scale as O(d²) (O(n_h · d) for `n_h > 0`) and
 each composition step of the scan as O(d³). A neuron with state dimension d
@@ -130,25 +152,28 @@ yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))               (output_gate=True)
 
 ### Parallel Computation via Prefix Scan
 
-Given x₀ and the sequence (r₁, s₁), …, (rₜ, sₜ), all states x₁, …, xₜ
-can be computed in parallel:
+Given x₀ and the per-step maps f₁, …, f_T (fₜ with parameters Rₜ, sₜ), all
+states x₁, …, x_T can be computed in parallel:
 
-1. **Prefix compose** — compute, for each position t, the MinMax operator
-   Fₜ = fₜ ∘ fₜ₋₁ ∘ … ∘ f₁ that maps x₀ to xₜ.
-   The current implementation uses the Hillis–Steele parallel prefix scan, with depth
-   O(log T) and work O(T log T) for T the sequence length.
+1. **Prefix compose** — compute, for each position t, the MinMax map
+   Fₜ = fₜ ∘ fₜ₋₁ ∘ … ∘ f₁ that maps x₀ to xₜ, using composition closure.
+   The current implementation uses the Hillis–Steele parallel prefix scan,
+   with depth O(log T) and work O(T log T) for T the sequence length (a
+   work-efficient scan would need only O(T) work, at about twice the depth).
 
-2. **Batch apply** — evaluate every prefix operator on x₀ simultaneously:
+2. **Batch apply** — evaluate every prefix map on x₀ simultaneously:
    xₜ = Fₜ(x₀).
 
 For scalar-state neurons the scan is element-wise (`minmax_scan.all_states`);
 for d > 1 it composes d × d matrices (`minmax_scan.all_states_matrix`), with
-the neurons of a group folded into the batch axis.
+the neurons of a group folded into the batch axis, so every composition costs
+O(d³).
 
 At inference time (token-by-token generation) the recurrence runs
 sequentially as a standard RNN with constant cost per step and a state of
 fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
-over chunks of k steps and the recurrence across chunks.
+over chunks of k steps and the recurrence across chunks — depth
+O((T/k) · log k), work O(T log k).
 
 ---
 
@@ -161,7 +186,7 @@ MinMaxRNC_LM
     ├── MinMaxLayer × n_layers
     │   ├── norm_conv   → BasicConv / GatedConv
     │   ├── norm_ffn    → FeedForward / GatedFeedForward
-    │   └── norm_neuron → Σ MinMaxNeuronGroup   (neuron: d_state shorthand,
+    │   └── norm_neuron → Σ MinMaxNeuronGroup   (neuron: scalar_neurons shorthand,
     │                                            neuron_groups: `neurons`)
     └── postlayers_ffn  (optional)
     └── postlayers_norm
@@ -182,8 +207,9 @@ is batched.
 The group's state is the flat vector of its `num_neurons · d` coordinates
 (neuron-major). For d = 1 the group is evaluated with the element-wise scan
 and every parameter, tensor and operation is exactly that of 0.3.0's MinMax
-Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of `d_state`
-scalar-state neurons.
+Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of
+`MinMaxNeuronConfig.d_state` scalar-state neurons, which is how the layer
+holds the `scalar_neurons` shorthand.
 
 Learnable parameters: Wₛ, Wᵣ (or Wₖ, Wᵦ when `n_h > 0`), Wₒ (and optionally
 Wᵍ, x₀).
@@ -201,8 +227,8 @@ output = u + neuron
 ```
 
 where `Neuron` is the sum of the outputs of all the layer's neuron groups,
-all reading the same normalised input: the `d_state` shorthand group (if
-`d_state > 0`, registered as `neuron` for compatibility with 0.3.0) and each
+all reading the same normalised input: the `scalar_neurons` shorthand group
+(if present, registered as `neuron` for compatibility with 0.3.0) and each
 group of `neurons` (registered in `neuron_groups`). Each group's output
 projection is initialised with `wang_init_` using the layer's total state
 size Σ num_neurons · d as `dim`, so the layer's overall contribution to the
@@ -251,7 +277,7 @@ All architecture hyperparameters are specified through a single flat
 |---|---|---|---|
 | `d_model` | int | — | Residual-stream / embedding width |
 | `n_layers` | int | — | Number of MinMaxLayers |
-| `d_state` | int | `0` | Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, d_state)`); `0` = none (then `neurons` is required) |
+| `d_state` | int | `0` | Legacy name of `scalar_neurons` (the 0.3.0 field, kept for backward compatibility): `d_state=N` builds the same model as `scalar_neurons=N`. Set at most one of the two |
 | `norm` | str | `'layernorm'` | In-layer pre-norm: `'layernorm'`, `'rmsnorm'`, `'none'` |
 | `postlayers_norm` | str | `'layernorm'` | Norm applied after the final layer |
 | `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) |
@@ -267,6 +293,7 @@ All architecture hyperparameters are specified through a single flat
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
+| `scalar_neurons` | int | `0` | *0.4.0.* Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, scalar_neurons)`). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
 | `neurons` | tuple | `()` | *0.4.0.* Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or equivalent tuples/lists |
 | `scan_dtype` | str | `'ambient'` | *0.4.0.* Scan precision: `'ambient'` (no casting, 0.3.0 behaviour), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
 | `amp_dtype` | str \| None | `None` | *0.4.0.* Model-level autocast: `None` (caller decides, 0.3.0 behaviour), `'bf16'`, `'fp16'` |
@@ -288,10 +315,14 @@ construction is unchanged.
 ### Preset factories
 
 ```python
-MinMaxRNCConfig.small()    # d_model=90,  n_layers=2,  d_state=40
-MinMaxRNCConfig.medium()   # d_model=512, n_layers=8,  d_state=512
-MinMaxRNCConfig.large()    # d_model=728, n_layers=12, d_state=1456
+MinMaxRNCConfig.small()    # d_model=90,  n_layers=2,  40 scalar-state neurons
+MinMaxRNCConfig.medium()   # d_model=512, n_layers=8,  512 scalar-state neurons
+MinMaxRNCConfig.large()    # d_model=728, n_layers=12, 1456 scalar-state neurons
 ```
+
+The presets set the scalar-state neurons through the legacy field `d_state`, so
+`preset.d_state` keeps its 0.3.0 value; `preset.num_scalar_neurons` gives the
+count whichever field was used.
 
 
 ---
@@ -345,8 +376,8 @@ Both functions initialise by sampling p ~ N(0, σ²); the table gives σ.
 | `wang_init_(p, dim, N)` | 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
 
 `small_init_` is applied to all **input-side** projections: token embedding,
-LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ,
-and output-gate Wᵍ projections.  It keeps activations small at initialisation
+LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ
+(or Wₖ, Wᵦ), and output-gate Wᵍ projections.  It keeps activations small at initialisation
 in deep networks.
 
 `wang_init_` is applied to the two **residual output** projections: the
@@ -357,7 +388,10 @@ scaled-init strategy.
 
 ### s and r Projection Initialisation
 
-The `s_r_init` config field selects the initialisation scheme for the Wₛ and Wᵣ projections.
+The `s_r_init` config field selects the initialisation scheme for the Wₛ projection and the
+projections Rₜ is built from (Wᵣ, or Wₖ and Wᵦ when `n_h > 0`, which follow the Wᵣ column). For
+`n_h > 0`, Wᵦ is additionally scaled by 1/√n_h, so that Rₜ's initial deviation from the identity
+does not grow with the number of factors.
 
 | Scheme | Wₛ weights | Wᵣ weights | bₛ | bᵣ |
 |---|---|---|---|---|
@@ -365,7 +399,7 @@ The `s_r_init` config field selects the initialisation scheme for the Wₛ and W
 | `'kaiming'` | Kaiming uniform (a=√5) | Kaiming uniform (a=√5) | 0 | 0 |
 | `'asymmetric'` | Kaiming uniform (a=√5) | `small_init_` | +1.0 | 0 |
 
-The **asymmetric** scheme addresses an initialisation dead zone: with x₀ = 0 and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting bₛ = +1.0 ensures s > 0 at initialisation so writes happen from the first token; keeping Wᵣ small prevents r from immediately over-writing the written values.
+The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with x₀ = 0 and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting bₛ = +1.0 ensures s > 0 at initialisation so writes happen from the first token; keeping Wᵣ small prevents r from immediately over-writing the written values.
 
 ---
 

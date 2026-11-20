@@ -87,20 +87,26 @@ class MinMaxRNCConfig:
         dimension.
     n_layers : int
         Number of stacked MinMaxLayers.
+    scalar_neurons : int
+        New in 0.4.0, default 0. Number of scalar-state MinMax neurons in each
+        layer (equivalently, their total state dimension) — shorthand for the
+        neuron group NeuronGroup(d_state=1, num_neurons=scalar_neurons).
+        Independent of d_model; larger values increase memory capacity at
+        linear parameter cost.
     d_state : int
-        Number of scalar-state MinMax neurons in each layer (equivalently,
-        their total state dimension) — shorthand for a neuron group
-        NeuronGroup(d_state=1, num_neurons=d_state), and the 0.3.0 way of
-        configuring a layer's neurons. Independent of d_model; larger values
-        increase memory capacity at linear parameter cost. 0 means none (new
-        in 0.4.0; `neurons` must then be non-empty).
+        Legacy name of `scalar_neurons` (the 0.3.0 field, kept for backward
+        compatibility, including positional construction): d_state=N builds
+        exactly the same model as scalar_neurons=N. Set at most one of the
+        two; the number in use is `num_scalar_neurons`. Every layer needs at
+        least one neuron: scalar_neurons (or d_state) > 0 and/or a non-empty
+        `neurons`.
     neurons : tuple[NeuronGroup | tuple, ...]
         New in 0.4.0, default () — none. Further groups of MinMax neurons in
         every layer, each entry a NeuronGroup or a tuple
         (d_state[, num_neurons[, n_h[, normalize_keys]]]): num_neurons
         neurons of state dimension d_state each. All neuron outputs of a
         layer are summed. Scalar-state groups (d_state=1) cost as much as
-        the `d_state` shorthand; for d_state > 1 the scan's work scales as
+        `scalar_neurons`; for d_state > 1 the scan's work scales as
         d_state³ per step, so keep it small and scale with num_neurons.
 
     Normalisation
@@ -211,6 +217,7 @@ class MinMaxRNCConfig:
     use_postlayers_ffn: bool = False
 
     # --- new in 0.4.0 (appended, so positional construction is unchanged) ---
+    scalar_neurons:  int                     = 0
     neurons:         Tuple[NeuronGroup, ...] = ()
     scan_dtype:      ScanDtype          = 'ambient'
     amp_dtype:       Optional[AmpDtype] = None
@@ -218,12 +225,19 @@ class MinMaxRNCConfig:
     def __post_init__(self):
         groups = tuple(NeuronGroup.coerce(g) for g in self.neurons)
         object.__setattr__(self, 'neurons', groups)
+        if self.scalar_neurons < 0:
+            raise ValueError(f"scalar_neurons must be >= 0, got {self.scalar_neurons}")
         if self.d_state < 0:
             raise ValueError(f"d_state must be >= 0, got {self.d_state}")
-        if self.d_state == 0 and len(groups) == 0:
+        if self.scalar_neurons > 0 and self.d_state > 0:
+            raise ValueError(
+                f"Set either scalar_neurons or its legacy name d_state, not both "
+                f"(got scalar_neurons={self.scalar_neurons}, d_state={self.d_state})."
+            )
+        if self.num_scalar_neurons == 0 and len(groups) == 0:
             raise ValueError(
                 "MinMaxRNCConfig requires at least one neuron per layer: set "
-                "d_state > 0 and/or a non-empty `neurons`."
+                "scalar_neurons > 0 and/or a non-empty `neurons`."
             )
         if self.scan_dtype not in SCAN_DTYPES:
             raise ValueError(
@@ -237,9 +251,15 @@ class MinMaxRNCConfig:
             )
 
     @property
+    def num_scalar_neurons(self) -> int:
+        """Scalar-state neurons per layer, set by scalar_neurons or its legacy name d_state."""
+        return self.scalar_neurons or self.d_state
+
+    @property
     def neuron_groups(self) -> Tuple[NeuronGroup, ...]:
-        """All neuron groups of each layer: the `d_state` shorthand (if > 0) first, then `neurons`."""
-        shorthand = (NeuronGroup(d_state=1, num_neurons=self.d_state),) if self.d_state > 0 else ()
+        """All neuron groups of each layer: the scalar_neurons shorthand (if > 0) first, then `neurons`."""
+        n = self.num_scalar_neurons
+        shorthand = (NeuronGroup(d_state=1, num_neurons=n),) if n > 0 else ()
         return shorthand + self.neurons
 
     @property
@@ -256,14 +276,17 @@ class MinMaxRNCConfig:
     def layer_cfg(self) -> MinMaxLayerConfig:
         # Every group's output projection is scaled by the layer's total state
         # size, so the layer's summed contribution stays O(1) however the
-        # state is split (for a d_state-only layer: exactly as in 0.3.0).
+        # state is split (for a scalar-neurons-only layer: exactly as in 0.3.0).
+        # The scalar_neurons shorthand group is the 0.3.0 MinMax Neuron, so
+        # scalar_neurons=N and d_state=N give the same parameters, names and
+        # computation.
         state_size = self.state_size_per_layer
         neuron_cfg = None
-        if self.d_state > 0:
+        if self.num_scalar_neurons > 0:
             neuron_cfg = MinMaxNeuronConfig(
                 _num_blocks          = self.n_layers,
                 d_model              = self.d_model,
-                d_state              = self.d_state,
+                d_state              = self.num_scalar_neurons,
                 dropout              = self.neuron_dropout,
                 train_init           = self.train_init,
                 output_gate          = self.output_gate,
