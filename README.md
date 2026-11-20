@@ -16,7 +16,7 @@ Resources:
   "which phase are we in?" over arbitrarily long sequences. 
   Models trained on short sequences have been evaluated without loss of accuracy on sequences of
   over a million tokens. (Formally: all star-free languages with scalar-state neurons, up to all
-  regular languages with matrix neurons — see the paper.)
+  regular languages with matrix neurons)
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in parallel over
   a whole sequence with a prefix scan (O(log T) depth), step by step as a recurrence (constant
   compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of k
