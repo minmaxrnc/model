@@ -44,15 +44,19 @@ residual connections:
 
 1. **Convolution** — one-step causal mixing.
 2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state
-   dimension `d` updates its state `x_t ∈ R^d` by the MinMax recurrence
-   `x_{t+1} = max(R_t ⊗ x_t, s_t)`, the affine recurrence of the (max,min)
-   semiring, with the `d × d` matrix `R_t` and the vector `s_t` computed from
-   the input. With `d = 1` the state is a scalar and the recurrence reads
-   `x_{t+1} = max(min(r_t, x_t), s_t)`; with larger `d` the state coordinates
-   interact. Each layer holds groups of neurons, of any state dimensions,
-   evaluated with a parallel prefix scan, and sums their outputs (see
-   [Neurons of any state dimension](#neurons-of-any-state-dimension)).
+3. **MinMax neurons** — the recurrent cells. A MinMax neuron updates its state `x_t ∈ ℝᵈ` 
+   by the MinMax recurrence `x_{t+1} = (R_{t+1} ⊗ x_t) ⊕ s_{t+1}` where 
+   the matrix `R_{t+1} \in ℝᵈˣᵈ` and vector `s_{t+1} ∈ ℝᵈ` are computed from the input to the neuron.
+   MinMax recurrence is obtained from ordinary affine recurrence by replacing sum and product
+   operations `(+,×)` on vectors and matrices with their MinMax counterparts `(⊕,⊗)`, 
+   that replace scalar addition and multiplication with max and min, respectively,
+   and extend the resulting operations to vectors and matrices in the usual way.
+   With `d = 1` the state is a scalar and the recurrence can be written as
+   `x_{t+1} = max(min(r_t, x_t), s_t)`; with larger `d` the state coordinates interact. 
+   Each layer holds groups of neurons, of any state dimensions, evaluated with a parallel prefix
+   scan, and sums their outputs 
+   (see [Neurons of any state dimension](#neurons-of-any-state-dimension)).
+
 
 
 ## Installation
