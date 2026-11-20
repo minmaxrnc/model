@@ -78,6 +78,28 @@ dedicated element-wise scan, so their cost per step is $`O(1)`$ per neuron.
 Conversely, a $`d \times d`$ matrix whose off-diagonal entries are $`-\infty`$
 decouples the coordinates into $`d`$ scalar-state neurons.
 
+**Scalar-state neurons ($`d = 1`$).** For a single neuron with $`d = 1`$, the state
+$`x_t`$ and the parameters $`R_t = r_t`$ and $`s_t`$ are scalars, and the
+recurrence is the clamp above:
+
+    ```math
+    x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)
+    ```
+
+| Parameter | Definition | Role |
+|---|---|---|
+| $`r_t`$ | $`w_r \cdot u_t`$ | upper bound — reset signal / forget gate |
+| $`s_t`$ | $`w_s \cdot u_t`$ | lower bound — set signal / write value |
+
+where $`w_r, w_s \in ℝ^m`$ are the neuron's weight vectors.
+
+`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. Stacking
+their states and weights, the layer keeps $`x_t \in ℝ^N`$ with $`r_t = W_r \cdot u_t`$
+and $`s_t = W_s \cdot u_t`$ ($`W_r, W_s \in ℝ^{N \times I}`$), and the recurrence
+above holds element-wise, one coordinate per neuron. These $`N`$ neurons are
+what 0.3.0 called a single MinMax Neuron with `d_state = N`. They are evaluated
+with a dedicated element-wise scan, so the cost per step is $`O(1)`$ per neuron.
+
 **Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
 of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
 permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
