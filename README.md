@@ -1,8 +1,8 @@
-# MinMax Recurrent Neural Cascades — Truly for long-sequence processing
+# MinMax Recurrent Neural Cascades — 
 
-A parallelisable recurrent sequence model built on the **MinMax operator** — 
-expressively powerful, efficiently implementable, and provably not affected by
-vanishing or exploding gradients.
+A parallelisable recurrent architecture truly for long-sequence processing — 
+expressively powerful, efficiently implementable, provably stable, 
+and not affected by vanishing gradients.
 
 Resources:
 - [Project website](https://minmaxrnc.org/) for an overview, results, and news.
