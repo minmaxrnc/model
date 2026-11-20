@@ -42,10 +42,16 @@ Only a small LaTeX subset is supported (see SYMBOLS / FUNCTIONS / FONTS);
 anything else raises an error rather than producing broken output, and so
 does plain $...$ math (use $`...`$, GitHub's unambiguous inline syntax).
 
+Version references are kept in sync with pyproject.toml's `version`, the
+single source of truth: before generating README.pypi.md, the script rewrites
+the places listed in VERSIONED (the BibTeX `version = {...}` field in
+README.md, `__version__` in the package) to the current version. Historical
+mentions such as "New in 0.4.0" are deliberately not touched.
+
 Usage (from the repository root):
 
-    python scripts/build_pypi_readme.py           # write README.pypi.md
-    python scripts/build_pypi_readme.py --check   # exit 1 if README.pypi.md is stale
+    python scripts/build_pypi_readme.py           # sync versions, write README.pypi.md
+    python scripts/build_pypi_readme.py --check   # exit 1 if anything is stale
 
 tests/test_pypi_readme.py runs the --check logic, so a README.md edit
 without regenerating README.pypi.md fails the test suite.
@@ -280,32 +286,71 @@ def convert(markdown: str, ref: str) -> str:
     return HEADER + '\n'.join(out) + '\n'
 
 
-def release_ref() -> str:
+# --- version references ----------------------------------------------------
+
+# (file, pattern, description): group 1 and 2 surround the version string.
+VERSIONED = [
+    (SOURCE,
+     re.compile(r'^(\s*version\s*=\s*\{)[^}]*(\})', re.M),
+     'BibTeX version field in README.md'),
+    (ROOT / 'src' / 'minmaxrnc' / '__init__.py',
+     re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.M),
+     '__version__ in src/minmaxrnc/__init__.py'),
+]
+
+
+def project_version() -> str:
     m = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(), re.M)
     if not m:
         raise RuntimeError("version not found in pyproject.toml")
-    return f'v{m.group(1)}'
+    return m.group(1)
+
+
+def release_ref() -> str:
+    return f'v{project_version()}'
+
+
+def sync_version(text: str, pattern: re.Pattern, version: str, what: str) -> str:
+    """Set every version reference matched by `pattern` in `text` to `version`."""
+    new, n = pattern.subn(lambda m: f'{m.group(1)}{version}{m.group(2)}', text)
+    if n == 0:
+        raise RuntimeError(f"no {what} found to keep in sync with pyproject.toml")
+    return new
+
+
+def synced_files() -> dict:
+    """{path: content with its version references synced} for every VERSIONED file."""
+    version, contents = project_version(), {}
+    for path, pattern, what in VERSIONED:
+        contents[path] = sync_version(contents.get(path, path.read_text()), pattern, version, what)
+    return contents
 
 
 def build() -> str:
-    return convert(SOURCE.read_text(), release_ref())
+    """README.pypi.md content, from README.md with its version references synced."""
+    return convert(synced_files()[SOURCE], release_ref())
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--check', action='store_true',
-                    help='exit with status 1 if README.pypi.md is out of date')
+                    help='exit with status 1 if a version reference or README.pypi.md is out of date')
     args = ap.parse_args(argv)
-    expected = build()
+    files = synced_files()
+    files[TARGET] = convert(files[SOURCE], release_ref())
+    stale = [p for p, c in files.items() if not p.exists() or p.read_text() != c]
     if args.check:
-        if not TARGET.exists() or TARGET.read_text() != expected:
-            print("README.pypi.md is out of date: run python scripts/build_pypi_readme.py",
+        for p in stale:
+            print(f"{p.relative_to(ROOT)} is out of date: run python scripts/build_pypi_readme.py",
                   file=sys.stderr)
-            return 1
-        print("README.pypi.md is up to date")
-        return 0
-    TARGET.write_text(expected)
-    print(f"wrote {TARGET.relative_to(ROOT)}")
+        if not stale:
+            print(f"version references ({project_version()}) and README.pypi.md are up to date")
+        return 1 if stale else 0
+    for p in stale:
+        p.write_text(files[p])
+        print(f"wrote {p.relative_to(ROOT)}")
+    if not stale:
+        print("everything already up to date")
     return 0
 
 

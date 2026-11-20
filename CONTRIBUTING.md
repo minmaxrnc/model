@@ -17,9 +17,14 @@ Do not submit code copied from GPL, AGPL, LGPL, proprietary, or unknown-license 
 generated from it, because PyPI does not render math:
 
 ```bash
-python scripts/build_pypi_readme.py           # regenerate README.pypi.md
-python scripts/build_pypi_readme.py --check   # verify it is up to date (also run by the tests)
+python scripts/build_pypi_readme.py           # sync version references, regenerate README.pypi.md
+python scripts/build_pypi_readme.py --check   # verify both are up to date (also run by the tests)
 ```
+
+The script also keeps version references in sync with `pyproject.toml`'s `version` (the single
+place to change it): the BibTeX `version = {...}` field in `README.md` and `__version__` in
+`src/minmaxrnc/__init__.py` are rewritten to match. Historical mentions ("New in 0.4.0") are left
+alone; to sync a new kind of reference, add it to `VERSIONED` in the script.
 
 The script converts formulas to HTML that PyPI renders (`<sub>`, `<sup>`, Unicode symbols) and
 rewrites relative links to absolute GitHub URLs pinned to the release tag. It supports a small LaTeX

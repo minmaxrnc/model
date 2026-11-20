@@ -32,6 +32,30 @@ class TestGeneratedReadme(unittest.TestCase):
             "README.pypi.md is out of date: run python scripts/build_pypi_readme.py",
         )
 
+    def test_version_references_in_sync_with_pyproject(self):
+        """BibTeX version in README.md and __version__ follow pyproject.toml."""
+        version = build_pypi_readme.project_version()
+        for path, content in build_pypi_readme.synced_files().items():
+            with self.subTest(file=path.name):
+                self.assertEqual(
+                    path.read_text(), content,
+                    f"{path.name} has a stale version reference (pyproject.toml: {version}): "
+                    f"run python scripts/build_pypi_readme.py",
+                )
+
+    def test_package_version_matches_pyproject(self):
+        import minmaxrnc
+        self.assertEqual(minmaxrnc.__version__, build_pypi_readme.project_version())
+
+    def test_sync_version_rewrites_only_the_marked_reference(self):
+        pattern = build_pypi_readme.VERSIONED[0][1]
+        src = 'New in 0.4.0.\n```bibtex\n@software{x,\n  version = {0.3.0},\n}\n```\n'
+        out = build_pypi_readme.sync_version(src, pattern, '1.2.3', 'test')
+        self.assertIn('  version = {1.2.3},', out)
+        self.assertIn('New in 0.4.0.', out)
+        with self.assertRaises(RuntimeError):
+            build_pypi_readme.sync_version('no reference here', pattern, '1.2.3', 'test')
+
     def test_pyproject_uses_generated_readme(self):
         self.assertIn('readme = {file = "README.pypi.md"', (ROOT / 'pyproject.toml').read_text())
 
