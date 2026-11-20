@@ -9,31 +9,32 @@ Resources:
 - [Paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
 - [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
 
-
 ## Key properties
 
-Four properties for truly long-sequence processing, which existing
-architectures do not combine:
+- **Perfect memory over long contexts.** A MinMax neuron can hold a value for arbitrarily many steps
+  without corrupting it, and hence it can track states such as "has X happened yet?" or 
+  "which phase are we in?" over arbitrarily long sequences. 
+  Models trained on short sequences have been evaluated without loss of accuracy on sequences of
+  over a million tokens. (Formally: all star-free languages with scalar-state neurons, up to all
+  regular languages with matrix neurons — see the paper.)
+- **Parallel, recurrent, or anything in between.** The same model can be evaluated in parallel over
+  a whole sequence with a prefix scan (O(log T) depth), step by step as a recurrence (constant
+  compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of k
+  steps, recurrent across chunks (O((T/k) · log k) depth). Set k with `unroll_steps`. k = T is fully
+  parallel, k = 1 fully recurrent, and all choices give identical results. Typically you'd train and
+  prefill prompts in parallel, then generate token by token, and use an intermediate k to process
+  sequences too long to scan in one go.
+- **Stable by construction.** States, activations, and gradients stay bounded, independently of how
+  long the input sequence is, because the recurrence produces states by simply *selecting* scalars
+  from the previous state or current inputs (via min and max operations). 
+- **Long-range credit assignment.** Information from early tokens can reach the end of the sequence
+  unchanged, and so can the gradient back to them, so models can learn dependencies spanning the
+  whole context (i.e., they do not suffer from vanishing state gradients).
+- **Competitive at scale.** On OpenWebText, a 112M-parameter MinMax RNC reaches the same validation
+  loss 3.12 as 124M-params GPT-2 124M.
+- **Plain PyTorch.** No custom CUDA kernels. Works with `torch.compile` and 
+  mixed precision (`amp_dtype`, `scan_dtype`), and is a drop-in sequence backbone or language model.
 
-- **Strong expressivity, with long-term memory.** MinMax neurons store and
-  retain information over arbitrarily long ranges, and can realise all
-  fundamental semiautomata, hence all regular languages. A neuron's state
-  dimension matches the degree of the permutation semiautomata it can
-  realise: scalar-state neurons already capture all star-free languages, and
-  [matrix neurons](#matrix-neurons) with larger state dimension go beyond.
-- **Efficient evaluation.** Sequentially, as a true RNN: O(T) time, with
-  constant compute and memory per token — practical for streaming
-  generation. In parallel, via associative composition of MinMax maps: a
-  prefix scan computes all hidden states in O(log T) depth, with no
-  sequential bottleneck in training.
-- **Stability.** States and activations are uniformly bounded, because
-  MinMax operations only *select* values; pseudo-gradients are uniformly
-  bounded and coincide with gradients almost everywhere — independently of
-  sequence length.
-- **Long-range sensitivity.** Over arbitrarily long ranges, the recurrence
-  can propagate state coordinates unchanged or permuted, giving
-  state-to-state pseudo-gradients of unit norm: early inputs keep
-  influencing later outputs.
 
 ## The model
 
