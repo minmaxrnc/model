@@ -104,7 +104,10 @@ class _Parser:
         return self.s[self.i] if self.i < len(self.s) else None
 
     def group(self):
-        """Body of a {...} group, or a single token, as raw LaTeX."""
+        """Body of a {...} group, or a single token, as raw LaTeX (as in TeX,
+        spaces before the argument are skipped: \\mathbb R == \\mathbb{R})."""
+        while self.peek() is not None and self.peek().isspace():
+            self.i += 1
         if self.peek() == '{':
             depth, start = 0, self.i
             while self.i < len(self.s):
@@ -140,7 +143,7 @@ class _Parser:
                     self.i += 1
                 if out and not out[-1].endswith(' '):
                     out.append(' ')
-            elif c.isalpha():
+            elif c.isascii() and c.isalpha():            # variables: ASCII letters only
                 m = re.match(r'[A-Za-z]+', self.s[self.i:])
                 self.i += len(m.group(0))
                 out.append(f'<em>{m.group(0)}</em>')
@@ -158,7 +161,7 @@ class _Parser:
                     out.append(SYMBOLS[name])
                 elif name in FUNCTIONS:
                     out.append(name)
-                elif name == 'mathbb':
+                elif name in ('mathbb', 'Bbb'):
                     arg = self.group()
                     if arg not in BLACKBOARD:
                         self.error(f"unsupported \\mathbb{{{arg}}}")

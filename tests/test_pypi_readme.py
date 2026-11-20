@@ -65,6 +65,12 @@ class TestLatexToHtml(unittest.TestCase):
         (r'd > 1',                               '<em>d</em> &gt; 1'),
         (r'\text{num\_neurons} \cdot d',         'num_neurons · <em>d</em>'),
         (r'S_3',                                 '<em>S</em><sub>3</sub>'),
+        # blackboard bold in every common spelling, and Unicode passed through upright
+        (r'x \in \mathbb R^d',                   '<em>x</em> ∈ ℝ<sup><em>d</em></sup>'),
+        (r'x \in \Bbb{R}^d',                     '<em>x</em> ∈ ℝ<sup><em>d</em></sup>'),
+        (r'x \in \Bbb R^d',                      '<em>x</em> ∈ ℝ<sup><em>d</em></sup>'),
+        (r'x_t \in ℝ^d',                         '<em>x</em><sub><em>t</em></sub> ∈ ℝ<sup><em>d</em></sup>'),
+        (r'α + x',                               'α + <em>x</em>'),
     ]
 
     def test_cases(self):
