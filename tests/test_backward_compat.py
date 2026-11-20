@@ -150,7 +150,7 @@ class TestV030ReferenceBehaviour(unittest.TestCase):
             _assert_state_equal(self, state, rec['state'], **FP32_TOL)
 
     def test_outer_bf16_autocast_outputs_and_state_match(self):
-        """Default scan_dtype='ambient' / amp_dtype=None leave the 0.3.0
+        """Default recurrence_dtype=None / amp_dtype=None leave the 0.3.0
         mixed-precision behaviour under a caller's autocast untouched,
         including the dtype of the carried state."""
         for _, rec in self._each():
@@ -219,7 +219,7 @@ class TestV030Api(unittest.TestCase):
     def test_new_settings_default_to_v030_behaviour(self):
         cfg = MinMaxRNCConfig(16, 1, 8)
         self.assertEqual(cfg.neurons, ())
-        self.assertEqual(cfg.scan_dtype, 'ambient')
+        self.assertIsNone(cfg.recurrence_dtype)
         self.assertIsNone(cfg.amp_dtype)
 
     def test_presets_unchanged(self):

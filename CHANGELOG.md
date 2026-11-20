@@ -25,8 +25,8 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
     `minmax_operator.compose_matrix`,
     `minmax_scan.all_composition_prefixes_matrix`,
     `minmax_scan.all_states_matrix`.
-- **Scan precision.** `MinMaxRNCConfig.scan_dtype`: `'ambient'` (default,
-  0.3.0 behaviour), or `'fp32'`, `'bf16'`, `'fp16'` to pin the scan's
+- **Recurrence precision.** `MinMaxRNCConfig.recurrence_dtype`: `None` (default,
+  0.3.0 behaviour), or `'fp32'`, `'bf16'`, `'fp16'` to pin the recurrence's
   precision regardless of any autocast. With a pinned dtype the recurrent
   state is carried in that dtype.
 - **Model-level mixed precision.** `MinMaxRNCConfig.amp_dtype`: `None`
@@ -35,13 +35,13 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   embedding and LM head).
 - `MinMaxRNCConfig.neuron_groups`, `.num_scalar_neurons`,
   `.num_neurons_per_layer` and `.state_size_per_layer` properties.
-- `MinMaxNeuronConfig.scan_dtype`, `MinMaxNeuronConfig._state_size_in_layer`
+- `MinMaxNeuronConfig.recurrence_dtype`, `MinMaxNeuronConfig._state_size_in_layer`
   and `MinMaxNeuronConfig.to_group_config()` (appended fields; defaults
   reproduce 0.3.0).
 - `MinMaxLayerConfig.neuron_groups` (appended field; default `()`) and
   `MinMaxLayer.neuron_group_list()`.
 - Package exports: `NeuronGroup`, `MinMaxNeuron`, `MinMaxNeuronConfig`,
-  `MinMaxNeuronGroup`, `MinMaxNeuronGroupConfig`, `ScanDtype`, `AmpDtype`,
+  `MinMaxNeuronGroup`, `MinMaxNeuronGroupConfig`, `RecurrenceDtype`, `AmpDtype`,
   `__version__`.
 - Tests: `tests/test_backward_compat.py` checks 0.4.0 against reference values
   recorded with 0.3.0 — weights, outputs, states and the forward pass's aten
@@ -76,4 +76,4 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
 - The per-layer recurrent state gains a `'neuron_groups'` entry only for
   models with `neurons` groups, and has no `'neuron'` entry without scalar
   neurons; models with only scalar neurons keep exactly the 0.3.0 structure.
-- Invalid `scan_dtype` / `amp_dtype` values raise `ValueError`.
+- Invalid `recurrence_dtype` / `amp_dtype` values raise `ValueError`.

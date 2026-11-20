@@ -51,7 +51,7 @@ Resources:
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss 3.12 as GPT-2 of 124M parameters.
 - **Plain PyTorch.** No custom CUDA kernels. Works with `torch.compile` and 
-  mixed precision (`amp_dtype`, `scan_dtype`), and is a drop-in sequence backbone or language model.
+  mixed precision (`amp_dtype`, `recurrence_dtype`), and is a drop-in sequence backbone or language model.
 
 
 ## The model
@@ -217,19 +217,19 @@ Two independent settings, both off by default:
 | Setting | Values | Effect |
 |---|---|---|
 | `amp_dtype` | `None` (default), `'bf16'`, `'fp16'` | When set, `forward()` runs under `torch.autocast(device, dtype=…)` (the LM wrapper also covers the embedding and head). `None` leaves autocast to the caller. |
-| `scan_dtype` | `'ambient'` (default), `'fp32'`, `'bf16'`, `'fp16'` | Precision of the MinMax scan, in both the forward and the backward pass. `'ambient'` does no casting. The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision; the recurrent state is carried in that dtype. |
+| `recurrence_dtype` | `None` (default), `'fp32'`, `'bf16'`, `'fp16'` | Dtype of the MinMax recurrence: its inputs ($`R_t`$, $`s_t`$ and the incoming state), the states it computes (including the state carried to the next chunk), and their gradients. `None` does no casting. The others *pin* the scan to that dtype with autocast disabled, whatever the surrounding precision. The input projections and the output projection are not affected. |
 
-What the scan's precision affects:
+What the recurrence's precision affects:
 
 - **Forward pass: only if the scan is *less* precise than its inputs.** The scan
   only *selects* among its inputs (min/max), never computes new values. Under
   bf16 AMP its inputs are already bf16, so running it in fp32 gives bitwise the
   same outputs as running it in bf16 (except for a learned initial state, which
-  a bf16 scan rounds). In an fp32 model, a bf16 scan does round its inputs.
+  a bf16 recurrence rounds). In an fp32 model, a bf16 recurrence does round its inputs.
 - **Backward pass: gradient accumulation.** A value that is selected and held
   for many steps receives a gradient contribution from each of them, summed in
-  the scan's dtype. An fp32 scan sums them accurately even under bf16 AMP; a
-  bf16 scan sums them with bf16's ~3 significant digits, which matters most for
+  the recurrence's dtype. An fp32 recurrence sums them accurately even under bf16 AMP; a
+  bf16 recurrence sums them with bf16's ~3 significant digits, which matters most for
   values held over long ranges.
 - **Cost.** The scan is memory-bandwidth bound (min/max, no tensor cores) and
   its intermediates are a large share of activation memory for long
@@ -237,30 +237,30 @@ What the scan's precision affects:
 
 Common recipes:
 
-| Goal | `amp_dtype` | `scan_dtype` | Effect |
+| Goal | `amp_dtype` | `recurrence_dtype` | Effect |
 |---|---|---|---|
-| Full precision (default) | `None` | `'ambient'` | everything in fp32 |
-| bf16 AMP, fp32 scan | `'bf16'` | `'fp32'` | same forward as a bf16 scan; scan gradients summed in fp32; more scan memory |
-| Fully bf16, scan included | `'bf16'` | `'bf16'` | least memory; scan gradients summed in bf16 |
-| fp32 model, bf16 scan | `None` | `'bf16'` | only the scan in bf16: it rounds its inputs, saving scan memory and bandwidth |
-| bf16 AMP, fp16 scan (untested) | `'bf16'` | `'fp16'` | bf16 values fit fp16 exactly within its range; finer gradient sums than bf16, but overflow above 65504 |
+| Full precision (default) | `None` | `None` | everything in fp32 |
+| bf16 AMP, fp32 recurrence | `'bf16'` | `'fp32'` | same forward as a bf16 recurrence; recurrence gradients summed in fp32; more recurrence memory |
+| Fully bf16, recurrence included | `'bf16'` | `'bf16'` | least memory; recurrence gradients summed in bf16 |
+| fp32 model, bf16 recurrence | `None` | `'bf16'` | only the recurrence in bf16: it rounds its inputs, saving recurrence memory and bandwidth |
+| bf16 AMP, fp16 recurrence (untested) | `'bf16'` | `'fp16'` | bf16 values fit fp16 exactly within its range; finer gradient sums than bf16, but overflow above 65504 |
 
-How much the more accurate gradients of an fp32 scan help training has not
+How much the more accurate gradients of an fp32 recurrence help training has not
 been measured yet; validate `'bf16'` against `'fp32'` on your task.
 
 ```python
 import dataclasses
 from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
 
-cfg   = dataclasses.replace(MinMaxRNCConfig.medium(), amp_dtype='bf16', scan_dtype='fp32')
+cfg   = dataclasses.replace(MinMaxRNCConfig.medium(), amp_dtype='bf16', recurrence_dtype='fp32')
 model = MinMaxRNC(cfg)
 ```
 
 Notes:
 
-- With `scan_dtype='ambient'` under autocast the scan
+- With `recurrence_dtype=None` under autocast the recurrence
   runs on bf16 projections with an fp32 initial state, so its precision is
-  mixed and implicit; pick a pinned `scan_dtype` to make it explicit.
+  mixed and implicit; pick a pinned `recurrence_dtype` to make it explicit.
 - An explicit `amp_dtype` overrides the dtype of an outer autocast inside the
   model. fp16 training also needs a `torch.amp.GradScaler`, which remains
   the caller's job.
@@ -281,7 +281,7 @@ pytest
 
 ```bibtex
 @inproceedings{ronca2026minmax,
-  title={MinMax Recurrent Neural Cascades},
+  title={{MinMax} Recurrent Neural Cascades},
   author={Alessandro Ronca},
   booktitle={NeurIPS 2026},
   year={2026},

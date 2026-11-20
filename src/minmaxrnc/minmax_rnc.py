@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 
 from .minmax_layer              import MinMaxLayer, MinMaxLayerConfig, NormType
 from .minmax_neuron             import (
-    MinMaxNeuronConfig, MinMaxNeuronGroupConfig, SRInitType, ScanDtype, SCAN_DTYPES,
+    MinMaxNeuronConfig, MinMaxNeuronGroupConfig, SRInitType, RecurrenceDtype, RECURRENCE_DTYPES,
 )
 from .modules.feedforward       import FeedForwardConfig, FFType, InitType, create_feedforward
 from .modules.basic_conv        import BasicConvConfig
@@ -140,11 +140,13 @@ class MinMaxRNCConfig:
         If True, the neuron's initial hidden state x_0 is a learned parameter.
     neuron_dropout : float
         Dropout probability applied to the neuron input.
-    scan_dtype : 'ambient' | 'fp32' | 'bf16' | 'fp16'
-        New in 0.4.0. Precision of every neuron's MinMax scan. 'ambient'
+    recurrence_dtype : None | 'fp32' | 'bf16' | 'fp16'
+        New in 0.4.0. Dtype of every neuron's MinMax recurrence: R_t, s_t, the
+        states (including the carried state) and their gradients. None
         (default) — no casting, exactly as in 0.3.0. 'fp32' / 'bf16' / 'fp16'
-        — pinned: the scan always runs in that dtype with autocast disabled,
-        whatever the ambient precision. See minmax_neuron.ScanDtype.
+        — pinned: the recurrence always runs in that dtype with autocast
+        disabled, whatever the surrounding precision. See
+        minmax_neuron.RecurrenceDtype.
 
     Mixed precision
     ---------------
@@ -155,8 +157,9 @@ class MinMaxRNCConfig:
         exactly as in 0.3.0, so an autocast context opened by the caller
         still applies. When set, it overrides the dtype of any outer autocast
         inside the model. fp16 training additionally needs the caller's
-        torch.amp.GradScaler. Combine with scan_dtype to choose the scan's
-        precision independently, e.g. amp_dtype='bf16', scan_dtype='fp32'.
+        torch.amp.GradScaler. Combine with recurrence_dtype to choose the
+        recurrence's precision independently, e.g. amp_dtype='bf16',
+        recurrence_dtype='fp32'.
 
     Convolution
     -----------
@@ -213,7 +216,7 @@ class MinMaxRNCConfig:
     # --- new in 0.4.0 (appended, so positional construction is unchanged) ---
     scalar_neurons:  int                     = 0
     neurons:         Tuple[NeuronGroup, ...] = ()
-    scan_dtype:      ScanDtype          = 'ambient'
+    recurrence_dtype: RecurrenceDtype   = None
     amp_dtype:       Optional[AmpDtype] = None
 
     def __post_init__(self):
@@ -233,10 +236,10 @@ class MinMaxRNCConfig:
                 "MinMaxRNCConfig requires at least one neuron per layer: set "
                 "scalar_neurons > 0 and/or a non-empty `neurons`."
             )
-        if self.scan_dtype not in SCAN_DTYPES:
+        if self.recurrence_dtype not in RECURRENCE_DTYPES:
             raise ValueError(
-                f"Unknown scan_dtype {self.scan_dtype!r}. Valid values: "
-                f"{', '.join(map(repr, SCAN_DTYPES))}."
+                f"Unknown recurrence_dtype {self.recurrence_dtype!r}. Valid values: "
+                f"{', '.join(map(repr, RECURRENCE_DTYPES))}."
             )
         if self.amp_dtype is not None and self.amp_dtype not in AMP_DTYPES:
             raise ValueError(
@@ -285,7 +288,7 @@ class MinMaxRNCConfig:
                 train_init           = self.train_init,
                 output_gate          = self.output_gate,
                 s_r_init             = self.s_r_init,
-                scan_dtype           = self.scan_dtype,
+                recurrence_dtype     = self.recurrence_dtype,
                 _state_size_in_layer = state_size,
             )
         group_cfgs = tuple(
@@ -298,7 +301,7 @@ class MinMaxRNCConfig:
                 train_init           = self.train_init,
                 output_gate          = self.output_gate,
                 s_r_init             = self.s_r_init,
-                scan_dtype           = self.scan_dtype,
+                recurrence_dtype     = self.recurrence_dtype,
                 _state_size_in_layer = state_size,
             )
             for g in self.neurons

@@ -14,9 +14,9 @@ that relates 0.4.0 to 0.3.0; see [CHANGELOG.md](../CHANGELOG.md) for the full li
 
 - Every 0.3.0 class, config field and argument keeps its name, position and meaning, including
   positional `MinMaxRNCConfig(d_model, n_layers, d_state)`.
-- The fields new in 0.4.0 (`scalar_neurons`, `neurons`, `scan_dtype`, `amp_dtype`) are appended
+- The fields new in 0.4.0 (`scalar_neurons`, `neurons`, `recurrence_dtype`, `amp_dtype`) are appended
   after the 0.3.0 fields, so positional construction is unchanged, and their defaults
-  (`scalar_neurons=0`, `neurons=()`, `scan_dtype='ambient'`, `amp_dtype=None`) reproduce the 0.3.0
+  (`scalar_neurons=0`, `neurons=()`, `recurrence_dtype=None`, `amp_dtype=None`) reproduce the 0.3.0
   behaviour.
 - **`d_state` is the legacy name of `scalar_neurons`.** It was 0.3.0's way of setting a layer's
   neurons: `d_state=N` and `scalar_neurons=N` build exactly the same model; set at most one of
@@ -45,9 +45,9 @@ With the defaults, a model has the same parameter names, shapes and seeded initi
 ## Precision settings and 0.3.0
 
 - `amp_dtype=None` (the default) leaves autocast to the caller, as in 0.3.0.
-- `scan_dtype='ambient'` (the default) does no casting, as in 0.3.0. Under an outer bf16 autocast
+- `recurrence_dtype=None` (the default) does no casting, as in 0.3.0. Under an outer bf16 autocast
   this means the prefix composition runs in bf16 while the fp32 initial state promotes the final
-  application to fp32 — the mixed, implicit precision of 0.3.0. A pinned `scan_dtype` makes the
+  application to fp32 — the mixed, implicit precision of 0.3.0. A pinned `recurrence_dtype` makes the
   choice explicit (see [Numerical precision](configuration.md#numerical-precision)).
 
 ## Recurrent state format
@@ -60,7 +60,7 @@ without scalar neurons have no `'neuron'` entry.
 
 Only for configs 0.3.0 rejected anyway: `d_state` now defaults to 0, so leaving it out raises a
 `ValueError` (instead of a `TypeError`) unless `scalar_neurons` or `neurons` is given; invalid
-`scan_dtype`/`amp_dtype` values raise `ValueError`.
+`recurrence_dtype`/`amp_dtype` values raise `ValueError`.
 
 ## From the matrix-neuron experiment branch
 

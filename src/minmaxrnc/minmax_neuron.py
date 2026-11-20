@@ -38,48 +38,54 @@ from . import minmax_scan
 
 SRInitType = Literal['small_init', 'kaiming', 'asymmetric']
 
-ScanDtype = Literal['ambient', 'fp32', 'bf16', 'fp16']
+RecurrenceDtype = Optional[Literal['fp32', 'bf16', 'fp16']]
 """
-Precision the MinMax scan runs in.
+Dtype in which the MinMax recurrence is computed: its parameters R_t and s_t,
+the incoming state, the prefix compositions, the states (including the state
+carried to the next chunk), and their gradients. It does not affect the input
+projections that produce R_t and s_t, nor the output gate and projection.
 
-'ambient' (default) — no casting at all: the scan runs on whatever dtypes its
-    inputs arrive in. This is exactly the 0.3.0 behaviour. Under an outer
-    torch.autocast this means the s/r projections arrive in the autocast dtype
-    while x_0 (an nn.Parameter) stays fp32, so the prefix composition runs in
-    the autocast dtype and the final application is promoted to fp32.
-'fp32' | 'bf16' | 'fp16' — *pinned*: every scan input is cast to this dtype and the scan runs with autocast disabled, so its
-    precision is exactly the requested one regardless of any ambient autocast.
-    The scan's outputs are cast back to the ambient compute dtype for the
-    output projections; the carried recurrent state stays in the pinned dtype.
+None (default) — no casting: the recurrence runs in whatever dtypes its inputs
+    arrive in. Under an outer torch.autocast this means R_t and s_t arrive in the
+    autocast dtype while x_0 (an nn.Parameter) stays fp32, so the prefix
+    composition runs in the autocast dtype and the final application is
+    promoted to fp32.
+'fp32' | 'bf16' | 'fp16' — *pinned*: R_t, s_t and the incoming state are cast to
+    this dtype and the recurrence runs with autocast disabled, so its precision
+    is exactly the requested one whatever the surrounding precision. The
+    computed states are cast back to the surrounding compute dtype for the
+    output gate and projection; the carried state stays in the pinned dtype.
 """
 
-SCAN_DTYPES = ('ambient', 'fp32', 'bf16', 'fp16')
+RECURRENCE_DTYPES = (None, 'fp32', 'bf16', 'fp16')
 
-_SCAN_TORCH_DTYPES = {
+_RECURRENCE_TORCH_DTYPES = {
     'fp32': torch.float32,
     'bf16': torch.bfloat16,
     'fp16': torch.float16,
 }
 
 
-def _check_scan_dtype(scan_dtype: str):
-    if scan_dtype not in SCAN_DTYPES:
+def _check_recurrence_dtype(recurrence_dtype):
+    if recurrence_dtype not in RECURRENCE_DTYPES:
         raise ValueError(
-            f"Unknown scan_dtype {scan_dtype!r}. Valid values: {', '.join(map(repr, SCAN_DTYPES))}."
+            f"Unknown recurrence_dtype {recurrence_dtype!r}. Valid values: "
+            f"{', '.join(map(repr, RECURRENCE_DTYPES))}."
         )
 
 
-def _scan_region(scan_dtype: str, device: torch.device):
+def _recurrence_region(recurrence_dtype, device: torch.device):
     """
-    Return (context manager, target dtype or None) for running the scan.
+    Return (context manager, target dtype or None) for computing the recurrence.
 
-    'ambient' → (nullcontext, None): no casting, ambient autocast untouched.
-    pinned    → (autocast disabled, torch dtype): the caller casts its inputs
-                to the returned dtype inside the context.
+    None   → (nullcontext, None): no casting, surrounding autocast untouched.
+    pinned → (autocast disabled, torch dtype): the caller casts its inputs
+             to the returned dtype inside the context.
     """
-    if scan_dtype == 'ambient':
+    if recurrence_dtype is None:
         return contextlib.nullcontext(), None
-    return torch.autocast(device_type=device.type, enabled=False), _SCAN_TORCH_DTYPES[scan_dtype]
+    return (torch.autocast(device_type=device.type, enabled=False),
+            _RECURRENCE_TORCH_DTYPES[recurrence_dtype])
 
 
 # ======================================================================
@@ -136,9 +142,9 @@ class MinMaxNeuronGroupConfig:
         encodes token identity with sufficient variance; r gets
         small_init weights and zero bias so they stay near zero early on and
         do not clip x back toward the dead zone.
-    scan_dtype : 'ambient' | 'fp32' | 'bf16' | 'fp16'
-        Precision of the MinMax scan; see ScanDtype. 'ambient' (default) does
-        no casting.
+    recurrence_dtype : None | 'fp32' | 'bf16' | 'fp16'
+        Dtype of the MinMax recurrence; see RecurrenceDtype. None (default)
+        does no casting.
     _state_size_in_layer : int | None
         Total number of state coordinates (Σ num_neurons · d_state over every
         neuron group) in the enclosing MinMaxLayer, whose outputs are summed.
@@ -157,11 +163,11 @@ class MinMaxNeuronGroupConfig:
     train_init:           bool          = False
     output_gate:          bool          = True
     s_r_init:             SRInitType    = 'small_init'
-    scan_dtype:           ScanDtype     = 'ambient'
+    recurrence_dtype:     RecurrenceDtype = None
     _state_size_in_layer: Optional[int] = None
 
     def __post_init__(self):
-        _check_scan_dtype(self.scan_dtype)
+        _check_recurrence_dtype(self.recurrence_dtype)
         if self.d_state <= 0:
             raise ValueError(f"d_state must be > 0, got {self.d_state}")
         if self.num_neurons <= 0:
@@ -336,18 +342,18 @@ class MinMaxNeuronGroup(nn.Module):
         r = self.r(u)                         # (B,T,K·d·d)
 
         compute_dtype = s.dtype
-        region, scan_dtype = _scan_region(self.group_cfg.scan_dtype, u.device)
+        region, rec_dtype = _recurrence_region(self.group_cfg.recurrence_dtype, u.device)
         with region:
-            if scan_dtype is not None:
-                r, s, x0 = r.to(scan_dtype), s.to(scan_dtype), x0.to(scan_dtype)
+            if rec_dtype is not None:
+                r, s, x0 = r.to(rec_dtype), s.to(rec_dtype), x0.to(rec_dtype)
             if self.d == 1:
                 x_post = self._scan_scalar(s, r, x0, B, T)
             else:
                 x_post = self._scan_matrix(s, r, x0, B, T)
 
         # ----- Compute outputs -----
-        x_latest = x_post[:, -1, :]           # (B,D) — carried state (scan dtype if pinned)
-        if scan_dtype is not None:
+        x_latest = x_post[:, -1, :]           # (B,D) — carried state (recurrence dtype if pinned)
+        if rec_dtype is not None:
             x_post = x_post.to(compute_dtype)
         if self.group_cfg.output_gate:
             x_post = x_post * torch.sigmoid(self.o_g(u))
@@ -380,11 +386,11 @@ class MinMaxNeuronConfig:
     output_gate: bool       = True
     s_r_init:    SRInitType = 'small_init'
     # --- new in 0.4.0 (appended, so positional construction is unchanged) ---
-    scan_dtype:           ScanDtype     = 'ambient'
+    recurrence_dtype:     RecurrenceDtype = None
     _state_size_in_layer: Optional[int] = None
 
     def __post_init__(self):
-        _check_scan_dtype(self.scan_dtype)
+        _check_recurrence_dtype(self.recurrence_dtype)
 
     def to_group_config(self) -> MinMaxNeuronGroupConfig:
         return MinMaxNeuronGroupConfig(
@@ -396,7 +402,7 @@ class MinMaxNeuronConfig:
             train_init           = self.train_init,
             output_gate          = self.output_gate,
             s_r_init             = self.s_r_init,
-            scan_dtype           = self.scan_dtype,
+            recurrence_dtype     = self.recurrence_dtype,
             _state_size_in_layer = self._state_size_in_layer,
         )
 

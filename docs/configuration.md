@@ -39,7 +39,7 @@ All architecture hyperparameters are specified through a single flat
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
 | `scalar_neurons` | int | `0` | Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, scalar_neurons)`). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
 | `neurons` | tuple | `()` | Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1)` or equivalent tuples/lists |
-| `scan_dtype` | str | `'ambient'` | Scan precision: `'ambient'` (no casting), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
+| `recurrence_dtype` | str \| None | `None` | Recurrence precision: `None` (no casting), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
 | `amp_dtype` | str \| None | `None` | Model-level autocast: `None` (caller decides), `'bf16'`, `'fp16'` |
 
 
@@ -57,9 +57,9 @@ All architecture hyperparameters are specified through a single flat
 ### Preset factories
 
 ```python
-MinMaxRNCConfig.small()    # d_model=90,  n_layers=2,  40 scalar-state neurons
-MinMaxRNCConfig.medium()   # d_model=512, n_layers=8,  512 scalar-state neurons
-MinMaxRNCConfig.large()    # d_model=728, n_layers=12, 1456 scalar-state neurons
+MinMaxRNCConfig.small()    # d_model=90,  n_layers=2,    40 scalar-state neurons per layer
+MinMaxRNCConfig.medium()   # d_model=512, n_layers=8,   512 scalar-state neurons per layer
+MinMaxRNCConfig.large()    # d_model=728, n_layers=12, 1456 scalar-state neurons per layer
 ```
 
 `preset.num_scalar_neurons` gives the number of scalar-state neurons.
@@ -69,26 +69,37 @@ MinMaxRNCConfig.large()    # d_model=728, n_layers=12, 1456 scalar-state neurons
 
 ## Numerical precision
 
-Two independent settings control precision; both are off by default.
+The independent settings `amp_dtype` and `recurrence_dtype` control precision; both are off by default.
 
-**`amp_dtype`** — if set, `MinMaxRNC.forward` (and, for `MinMaxRNC_LM`, the
-embedding and LM head as well) runs inside
-`torch.autocast(device_type, dtype=amp_dtype)`. If `None`, the model does not
-touch autocast, so a context opened by the caller applies as usual. An
-explicit `amp_dtype` takes precedence over an outer autocast inside the
-model. Loss scaling for fp16 (`torch.amp.GradScaler`) stays with the caller.
+**`amp_dtype`** — If set, `MinMaxRNC.forward` runs inside 
+`torch.autocast(device_type, dtype=amp_dtype)`; for `MinMaxRNC_LM`, the same applies to
+embedding and LM head. 
+If not set, the model does not touch autocast, so a context opened by the caller applies as usual.
+An explicit `amp_dtype` takes precedence over an outer autocast inside the model. 
+Loss scaling for fp16 (`torch.amp.GradScaler`) stays with the caller.
 
-**`scan_dtype`** — the precision of the MinMax scan in every neuron:
+**`recurrence_dtype`** — the dtype in which every neuron computes its MinMax recurrence, i.e. the
+dtype of:
 
-| Value | Scan inputs | Autocast during scan | Carried state |
+- the scan's inputs: the parameters $`R_t`$ and $`s_t`$ (as produced by the input projections)
+  and the incoming state ($`x_0`$, or the state carried from the previous chunk);
+- the intermediate prefix compositions;
+- the states $`x_1, \ldots, x_T`$ it computes, including the final state carried to the next
+  chunk;
+- in the backward pass, the gradients of all of the above.
+
+It does not affect the input projections that compute $`R_t`$ and $`s_t`$, the output gate and
+projection, or the dtype of the parameters:
+
+| Value | Scan inputs | Autocast during scan | States, incl. carried state |
 |---|---|---|---|
-| `'ambient'` | as they arrive (no casting) | unchanged | whatever the scan produced |
+| `None` | as they arrive (no casting) | unchanged | whatever the scan produces |
 | `'fp32'` / `'bf16'` / `'fp16'` | cast to that dtype | disabled | that dtype |
 
-With a pinned value, the scan's outputs are cast back to the ambient compute
-dtype before the output gate and projection.
+With a pinned value, the computed states are cast back to the surrounding compute dtype before the
+output gate and projection.
 
-**What the scan's precision changes.** The scan is a chain of element-wise
+**What the recurrence's precision changes.** The scan is a chain of element-wise
 min/max *selections*: every state value it produces is one of its input values
 ($`R_t`$, $`s_t`$ or $`x_0`$), never a newly computed one. Three consequences:
 
@@ -97,8 +108,8 @@ min/max *selections*: every state value it produces is one of its input values
    min/max of bf16 values is exact in any wider type, so an `'fp32'` scan gives
    bitwise the same outputs as a `'bf16'` one. The exception is a learned
    initial state (`train_init=True`): $`x_0`$ is an fp32 parameter, which a
-   bf16 scan rounds. Running the scan in a *lower* precision than its inputs
-   (an fp32 model with `scan_dtype='bf16'`) rounds them, and so changes the
+   bf16 recurrence rounds. Running the scan in a *lower* precision than its inputs
+   (an fp32 model with `recurrence_dtype='bf16'`) rounds them, and so changes the
    forward pass.
 2. **Backward pass.** The gradient of a selected value is the sum of the
    gradients of every later state it was selected into — for a value held over
@@ -112,17 +123,17 @@ min/max *selections*: every state value it produces is one of its input values
    memory for long sequences, so its cost and memory scale with the dtype's
    byte width: about 2× for fp32 vs bf16/fp16.
 
-Under an outer bf16 autocast, `'ambient'` composes the prefixes in
+Under an outer bf16 autocast, with `None` the scan composes the prefixes in
 bf16 while the fp32 initial state promotes the final application to fp32 —
 mixed and implicit. Pinning makes the choice explicit:
 
-| Recipe | `amp_dtype` | `scan_dtype` | Forward | Scan gradient sums | Scan memory |
+| Recipe | `amp_dtype` | `recurrence_dtype` | Forward | Recurrence gradient sums | Recurrence memory |
 |---|---|---|---|---|---|
-| Full precision (default) | `None` | `'ambient'` | fp32 | fp32 | 4 bytes |
-| bf16 AMP, fp32 scan | `'bf16'` | `'fp32'` | = bf16 scan | fp32 | 4 bytes |
+| Full precision (default) | `None` | `None` | fp32 | fp32 | 4 bytes |
+| bf16 AMP, fp32 recurrence | `'bf16'` | `'fp32'` | = bf16 recurrence | fp32 | 4 bytes |
 | Fully bf16, scan included | `'bf16'` | `'bf16'` | bf16 | bf16 | 2 bytes |
-| fp32 model, bf16 scan | `None` | `'bf16'` | scan rounds its inputs | bf16 | 2 bytes |
-| bf16 AMP, fp16 scan (untested) | `'bf16'` | `'fp16'` | = bf16 scan, within fp16's range | fp16 (finer than bf16; overflow above 65504) | 2 bytes |
+| fp32 model, bf16 recurrence | `None` | `'bf16'` | the recurrence rounds its inputs | bf16 | 2 bytes |
+| bf16 AMP, fp16 recurrence (untested) | `'bf16'` | `'fp16'` | = bf16 recurrence, within fp16's range | fp16 (finer than bf16; overflow above 65504) | 2 bytes |
 
 The effect of the more accurate gradient sums on training has not been measured
 yet; compare `'bf16'` against `'fp32'` on your task before relying on it.
@@ -135,8 +146,8 @@ Both functions initialise by sampling $`p \sim \mathcal{N}(0, \sigma^2)`$; the t
 
 | Function | $`\sigma`$ | Paper |
 |---|---|---|
-| `small_init_init_(p, dim)` | √(2 / (5·dim)) | Nguyen & Salazar, IWSLT 2019 |
-| `wang_init_(p, dim, N)` | 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
+| `small_init_init_(p, dim)` | $`\sqrt{\dfrac{2}{5 \cdot \mathrm{dim}}}`$ | Nguyen & Salazar, IWSLT 2019 |
+| `wang_init_(p, dim, N)` | $`\dfrac{2}{N \cdot \sqrt{\mathrm{dim}}}`$ | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
 
 `small_init_` is applied to all **input-side** projections: token embedding,
 LM head (when untied), BasicConv, FFN up-projection, and the neuron $`W_s`$, $`W_r`$,

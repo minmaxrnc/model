@@ -4,7 +4,7 @@
 """
 Tests for the precision settings (new in 0.4.0):
 
-- MinMaxRNCConfig.scan_dtype: 'ambient' (default, = 0.3.0) | 'fp32' | 'bf16' | 'fp16'
+- MinMaxRNCConfig.recurrence_dtype: None (default, = 0.3.0) | 'fp32' | 'bf16' | 'fp16'
 - MinMaxRNCConfig.amp_dtype:  None (default, = 0.3.0) | 'bf16' | 'fp16'
 
 The scan functions are wrapped with a spy recording the dtypes they receive
@@ -48,10 +48,10 @@ def _cpu_fp16_supported():
 FP16_OK = _cpu_fp16_supported()
 
 
-def _model(scan_dtype='ambient', amp_dtype=None, arch=dict(d_state=6), seed=0):
+def _model(recurrence_dtype=None, amp_dtype=None, arch=dict(d_state=6), seed=0):
     torch.manual_seed(seed)
     return MinMaxRNC(MinMaxRNCConfig(
-        d_model=12, n_layers=2, scan_dtype=scan_dtype, amp_dtype=amp_dtype,
+        d_model=12, n_layers=2, recurrence_dtype=recurrence_dtype, amp_dtype=amp_dtype,
         ffn_dropout=0.0, **arch,
     ))
 
@@ -89,7 +89,7 @@ def _flat_states(state):
     return out
 
 
-class TestScanDtype(unittest.TestCase):
+class TestRecurrenceDtype(unittest.TestCase):
 
     def _run(self, model, outer=None, T=9, unroll=4):
         u = torch.randn(2, T, 12)
@@ -97,7 +97,7 @@ class TestScanDtype(unittest.TestCase):
             y, state = model(u, unroll, return_state=True)
         return y, state, calls
 
-    def test_ambient_without_autocast_is_fp32(self):
+    def test_default_without_autocast_is_fp32(self):
         for name, arch in ARCHS:
             with self.subTest(arch=name):
                 _, state, calls = self._run(_model(arch=arch))
@@ -107,40 +107,40 @@ class TestScanDtype(unittest.TestCase):
                     self.assertFalse(ac)
                 self.assertTrue(all(s.dtype == torch.float32 for s in _flat_states(state)))
 
-    def test_ambient_under_outer_bf16_autocast_is_0_3_0_behaviour(self):
+    def test_default_under_outer_bf16_autocast_is_0_3_0_behaviour(self):
         """Projections arrive in bf16 and the fp32 x0 parameter is not cast:
         exactly the implicit mixed-precision behaviour of 0.3.0."""
         for name, arch in ARCHS:
             with self.subTest(arch=name):
                 _, _, calls = self._run(_model(arch=arch), outer='bf16', T=4, unroll=4)  # one chunk
                 for fn, dtypes, ac in calls:
-                    self.assertTrue(ac, "ambient must not disable the caller's autocast")
-                    self.assertEqual(dtypes[-1], torch.float32, "x0 stays fp32 in ambient mode")
+                    self.assertTrue(ac, "the default must not disable the caller's autocast")
+                    self.assertEqual(dtypes[-1], torch.float32, "x0 stays fp32 by default")
                     if fn == 'all_states':
                         self.assertEqual(dtypes[:2], (torch.bfloat16, torch.bfloat16))
                     else:
                         self.assertEqual(dtypes[1], torch.bfloat16)   # s
 
-    def test_pinned_dtype_is_exact_whatever_the_ambient(self):
-        for scan_dtype in ('fp32', 'bf16', 'fp16'):
-            if scan_dtype == 'fp16' and not FP16_OK:
+    def test_pinned_dtype_is_exact_whatever_the_surrounding_precision(self):
+        for recurrence_dtype in ('fp32', 'bf16', 'fp16'):
+            if recurrence_dtype == 'fp16' and not FP16_OK:
                 continue
             for outer in (None, 'bf16'):
                 for name, arch in ARCHS:
-                    with self.subTest(scan_dtype=scan_dtype, outer=outer, arch=name):
-                        _, state, calls = self._run(_model(scan_dtype, arch=arch), outer=outer)
+                    with self.subTest(recurrence_dtype=recurrence_dtype, outer=outer, arch=name):
+                        _, state, calls = self._run(_model(recurrence_dtype, arch=arch), outer=outer)
                         self.assertTrue(calls)
                         for _, dtypes, ac in calls:
-                            self.assertEqual(set(dtypes), {DT[scan_dtype]})
+                            self.assertEqual(set(dtypes), {DT[recurrence_dtype]})
                             self.assertFalse(ac, "autocast must be disabled inside a pinned scan")
                         for s in _flat_states(state):
-                            self.assertEqual(s.dtype, DT[scan_dtype], "carried state stays pinned")
+                            self.assertEqual(s.dtype, DT[recurrence_dtype], "carried state stays pinned")
 
-    def test_ambient_and_fp32_identical_without_autocast(self):
+    def test_default_and_fp32_identical_without_autocast(self):
         u = torch.randn(2, 9, 12)
         for name, arch in ARCHS:
             with self.subTest(arch=name):
-                a = _model('ambient', arch=arch).eval()
+                a = _model(None, arch=arch).eval()
                 b = _model('fp32', arch=arch).eval()
                 with torch.no_grad():
                     self.assertTrue(torch.equal(a(u, 4), b(u, 4)))
@@ -172,13 +172,13 @@ class TestScanDtype(unittest.TestCase):
                 torch.testing.assert_close(torch.cat([y1, y2], 1), full, atol=1e-2, rtol=1e-2)
 
     def test_gradients_finite_in_every_mode(self):
-        combos = [(s, a) for s in ('ambient', 'fp32', 'bf16', 'fp16') for a in (None, 'bf16')]
-        for scan_dtype, amp_dtype in combos:
-            if scan_dtype == 'fp16' and not FP16_OK:
+        combos = [(s, a) for s in (None, 'fp32', 'bf16', 'fp16') for a in (None, 'bf16')]
+        for recurrence_dtype, amp_dtype in combos:
+            if recurrence_dtype == 'fp16' and not FP16_OK:
                 continue
             for name, arch in ARCHS:
-                with self.subTest(scan_dtype=scan_dtype, amp_dtype=amp_dtype, arch=name):
-                    model = _model(scan_dtype, amp_dtype, arch=arch)
+                with self.subTest(recurrence_dtype=recurrence_dtype, amp_dtype=amp_dtype, arch=name):
+                    model = _model(recurrence_dtype, amp_dtype, arch=arch)
                     y = model(torch.randn(2, 9, 12), 4)
                     y.float().pow(2).mean().backward()
                     grads = [p.grad for p in model.parameters() if p.grad is not None]
@@ -259,7 +259,11 @@ class TestAmpDtype(unittest.TestCase):
 
     def test_rejects_unknown_values(self):
         with self.assertRaises(ValueError):
-            MinMaxRNCConfig(12, 1, 4, scan_dtype='fp64')
+            MinMaxRNCConfig(12, 1, 4, recurrence_dtype='fp64')
+        with self.assertRaises(ValueError):
+            MinMaxRNCConfig(12, 1, 4, recurrence_dtype='ambient')
+        with self.assertRaises(TypeError):
+            MinMaxRNCConfig(12, 1, 4, scan_dtype='fp32')
         with self.assertRaises(ValueError):
             MinMaxRNCConfig(12, 1, 4, amp_dtype='fp32')
 
