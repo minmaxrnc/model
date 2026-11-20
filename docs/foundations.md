@@ -133,7 +133,7 @@ parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`
 
 ```math
 f(x) = (R \otimes x) \oplus s,
-\quad\qquad\text{i.e., coordinate-wise,}\qquad
+\qquad\qquad\text{i.e.,}\quad
 f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
 
@@ -169,7 +169,11 @@ has two regimes:
    the map $`f`$ is the constant map $`f(x) = s`$ over the entire state space.
 
 
-## Composition Closure
+
+
+## Parallel Computation via Prefix Scan
+
+### Composition Closure
 
 The composition of two MinMax Recurrence maps is again a MinMax Recurrence map, 
 because $`\otimes`$ is associative and distributes over $`\oplus`$:
@@ -200,7 +204,7 @@ instead of applying $`f_1, f_2, \ldots, f_T`$ one by one in sequence,
 all prefix compositions can be computed simultaneously in parallel with depth $`O(\log T)`$.
 
 
-## Parallel Computation via Prefix Scan
+### Parallel Evaluation
 
 Given an initial state $`x_0`$ and per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
 with each $`f_t`$ having parameters $`R_t, s_t`$, 
