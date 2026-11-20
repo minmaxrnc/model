@@ -74,34 +74,33 @@ and the reset and set parameters can be more easily interpreted:
 | $`r_t`$ | $`w_r \cdot u_t + b_r`$ | upper bound — reset signal / forget gate |
 | $`s_t`$ | $`w_s \cdot u_t + b_s`$ | lower bound — set signal / write value |
 
-where $`w_r, w_s \in ℝ^m`$ are the neuron's weight vectors and $`b_r, b_s \in ℝ`$ its biases.
+where $`w_r, w_s \in ℝ^m`$ and $`b_r, b_s \in ℝ`$ are the neuron's input weight vectors 
+and biases, respectively.
 
 `MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. Stacking their states,
 weights and biases, the layer keeps $`x_t \in ℝ^N`$ with $`r_t = W_r \cdot u_t + b_r`$ and
 $`s_t = W_s \cdot u_t + b_s`$ ($`W_r, W_s \in ℝ^{N \times m}`$, $`b_r, b_s \in ℝ^N`$), and the
-recurrence above holds element-wise, one coordinate per neuron. These $`N`$ neurons are what 0.3.0
-called a single MinMax Neuron with `d_state = N`. They are evaluated with a dedicated element-wise
-scan, so the cost per step is $`O(1)`$ per neuron.
+recurrence above holds element-wise, one coordinate per neuron. 
+They are evaluated with a dedicated element-wise scan, so the cost per step is $`O(1)`$ per neuron.
 
 **Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
 of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
 permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
 needs but typically small; layers scale by having more neurons
-(`num_neurons`) and more neuron groups rather than larger $`d`$. (Conversely, a neuron with state
-dimension $`d`$ whose $`R_t`$ has all off-diagonal entries equal to $`-\infty`$ behaves like $`d`$
-independent scalar-state neurons.)
+(`num_neurons`) and more neuron groups rather than larger $`d`$. 
 
 **Output.** Each neuron's state is projected back to the input space, and
 the outputs of all neurons in a layer are summed:
 
 | `output_gate` | Output |
 |---|---|
-| `False` | $`y_t = W_o \cdot x_t + b_o`$ |
+| `False`          | $`y_t = W_o \cdot x_t + b_o`$ |
 | `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t + b_g)) + b_o`$ |
 
-### The MinMax Map
 
-A MinMax map on states of dimension $`d`$ is the affine map of this algebra,
+### MinMax Recurrence Map
+
+A MinMax Recurrence map on states of dimension $`d`$ is an affine map in the MinMax algebra,
 parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`$:
 
 ```math
@@ -110,9 +109,12 @@ f(x) = (R \otimes x) \oplus s,
 f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
 
-Every coordinate of $`f(x)`$ is *selected* among the entries of $`x`$, $`R`$ and $`s`$ —
-never computed by arithmetic — so $`f`$ keeps values bounded and passes them
-through unchanged.
+Every coordinate of $`f(x)`$ is *selected* among the entries of $`x`$, $`R`$ and $`s`$,
+so $`f`$ keeps values bounded and passes them through unchanged.
+
+The map can *route* values between coordinates: coordinate $`i`$ can take the value of coordinate
+$`j`$, limited by $`R_{ij}`$ — which is what lets a neuron permute its state.
+
 
 **Scalar case ($`d = 1`$).** With a scalar $`r = R`$, the map is a clamp between
 the lower bound $`s`$ and the upper bound $`r`$:
@@ -121,15 +123,16 @@ the lower bound $`s`$ and the upper bound $`r`$:
 f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
 ```
 
-| Input | Output | Interpretation |
-|---|---|---|
-| $`x < s`$ | $`f(x) = s`$ | lower clamp — set state to input value / store value into memory |
-| $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state / memory preserved unchanged |
-| $`x > r`$ | $`f(x) = r`$ | upper clamp — reset state / clear memory  |
+We can see it has two regimes:
+1. When $`r \ge s`$, the map is piecewise affine — it is constant in two regions of the state space,
+   and identity in the third region:
+  | Input             | Output       | Interpretation                       |
+  |---|---|---|
+  | $`x < s`$         | $`f(x) = s`$ | constant $`s`$                       |
+  | $`s \le x \le r`$ | $`f(x) = x`$ | identity — propagate state unchanged |
+  | $`x > r`$         | $`f(x) = r`$ | constant $`r`$                       |
+2. When $`r < s`$, the map is the constant map $`f(x) = s`$ over the entire state space.
 
-(when $`r \ge s`$; when $`r < s`$, $`f(x) = s`$ for every $`x`$). For $`d > 1`$ the map also
-*routes* values between coordinates: coordinate $`i`$ can take the value of coordinate $`j`$,
-limited by $`R_{ij}`$ — which is what lets a neuron permute its state.
 
 ### Composition Closure
 
