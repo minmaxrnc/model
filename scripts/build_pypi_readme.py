@@ -13,10 +13,25 @@ relative links to absolute GitHub URLs pinned to the release tag
 (v<version from pyproject.toml>), since relative links do not resolve on PyPI.
 
 Content can also differ between the two, with HTML comments (invisible on
-GitHub) as markers, usable inline or across lines:
+GitHub) as markers. Block form — marker lines on their own, which the
+generated file drops; indent them to the list-item content (e.g. 2 spaces)
+to keep a list unbroken on GitHub:
 
-    <!-- github-only -->shown on GitHub only<!-- /github-only -->
-    <!-- pypi-only shown on PyPI only -->
+    - Common item
+      <!-- github-only -->
+    - Item shown on GitHub only
+      <!-- /github-only -->
+      <!-- pypi-only
+    - Item shown on PyPI only
+      -->
+
+Inline form, within a line:
+
+    text <!-- github-only -->GitHub text<!-- /github-only --><!-- pypi-only PyPI text -->
+
+An inline marker must not begin a line (or a list item's content): CommonMark
+then treats the whole line as a raw HTML block and stops rendering Markdown in
+it on GitHub, so this is rejected.
 
 Only a small LaTeX subset is supported (see SYMBOLS / FUNCTIONS / FONTS);
 anything else raises an error rather than producing broken output, and so
@@ -168,8 +183,11 @@ def latex_to_html(tex: str) -> str:
 
 # --- document conversion ---------------------------------------------------
 
+GITHUB_ONLY_BLOCK = re.compile(r'^[ \t]*<!--\s*github-only\s*-->[ \t]*\n.*?^[ \t]*<!--\s*/github-only\s*-->[ \t]*\n', re.S | re.M)
+PYPI_ONLY_BLOCK   = re.compile(r'^[ \t]*<!--\s*pypi-only[ \t]*\n(.*?)^[ \t]*-->[ \t]*\n', re.S | re.M)
 GITHUB_ONLY  = re.compile(r'<!--\s*github-only\s*-->.*?<!--\s*/github-only\s*-->', re.S)
 PYPI_ONLY    = re.compile(r'<!--\s*pypi-only\s(.*?)-->', re.S)
+MARKER_AT_LINE_START = re.compile(r'^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?<!--\s*/?(?:github|pypi)-only\b(?!\s*-->[ \t]*$)(?![ \t]*$)', re.M)
 INLINE_MATH  = re.compile(r'\$`(.+?)`\$')
 CODE_SPAN    = re.compile(r'(`+).+?\1')
 FENCE        = re.compile(r'^(\s*)(```+|~~~+)\s*(\w*)\s*$')
@@ -200,6 +218,16 @@ def _convert_line(line: str, ref: str, lineno: int) -> str:
 
 def convert(markdown: str, ref: str) -> str:
     """README.md (GitHub flavour, LaTeX math) → README.pypi.md."""
+    markdown = GITHUB_ONLY_BLOCK.sub('', markdown)
+    markdown = PYPI_ONLY_BLOCK.sub(lambda m: m.group(1), markdown)
+    bad = MARKER_AT_LINE_START.search(markdown)
+    if bad:
+        lineno = markdown.count('\n', 0, bad.start()) + 1
+        raise LatexError(
+            f"README.md: an inline github-only/pypi-only marker begins a line "
+            f"(near generated line {lineno}); GitHub would render that line as raw "
+            f"HTML. Put text before it, or use the block form."
+        )
     markdown = GITHUB_ONLY.sub('', markdown)
     markdown = PYPI_ONLY.sub(lambda m: m.group(1).strip(), markdown)
     if re.search(r'<!--\s*/?(github|pypi)-only', markdown):

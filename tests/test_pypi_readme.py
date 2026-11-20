@@ -102,19 +102,38 @@ class TestConvertDocument(unittest.TestCase):
         self.assertIn('price = "$`x_t`$"  # $5', out)
         self.assertIn('Use `$HOME` here.', out)
 
-    def test_github_only_and_pypi_only_content(self):
-        src = ('- <!-- github-only -->GH [d](docs/a.md).<!-- /github-only -->'
-               '<!-- pypi-only PyPI [r](https://x.org). -->\n'
-               '<!-- github-only -->\nblock\n<!-- /github-only -->\nend\n')
+    def test_block_markers(self):
+        src = ('- Common\n'
+               '  <!-- github-only -->\n'
+               '- GH item [d](docs/a.md).\n'
+               '  <!-- /github-only -->\n'
+               '  <!-- pypi-only\n'
+               '- PyPI item [r](https://x.org).\n'
+               '  -->\n'
+               'end\n')
         out = convert(src, 'v1.0.0')
-        self.assertIn('- PyPI [r](https://x.org).\n', out)
-        self.assertNotIn('GH', out)
-        self.assertNotIn('block', out)
-        self.assertIn('end', out)
+        self.assertIn('- Common\n- PyPI item [r](https://x.org).\nend\n', out)
+        self.assertNotIn('GH item', out)
+        self.assertNotIn('-only', out)
+
+    def test_inline_markers(self):
+        src = ('- See <!-- github-only -->GH `code`<!-- /github-only -->'
+               '<!-- pypi-only PyPI [r](https://x.org) --> here.\n')
+        self.assertIn('- See PyPI [r](https://x.org) here.\n', convert(src, 'v1.0.0'))
+
+    def test_inline_marker_at_line_start_is_rejected(self):
+        """A line (or list item) beginning with <!-- is a raw HTML block in
+        CommonMark: GitHub would stop rendering Markdown in it."""
+        for src in ('- <!-- github-only -->GH `x`<!-- /github-only -->\n',
+                    '<!-- pypi-only PyPI text -->\n',
+                    '1. <!-- pypi-only PyPI text --> more\n'):
+            with self.subTest(src=src), self.assertRaises(LatexError):
+                convert(src, 'v1.0.0')
 
     def test_unmatched_marker_is_rejected(self):
-        with self.assertRaises(LatexError):
-            convert('<!-- github-only -->open\n', 'v1.0.0')
+        for src in ('Text <!-- github-only -->open\n', '  <!-- github-only -->\nopen block\n'):
+            with self.subTest(src=src), self.assertRaises(LatexError):
+                convert(src, 'v1.0.0')
 
     def test_plain_dollar_math_is_rejected(self):
         with self.assertRaises(LatexError):
