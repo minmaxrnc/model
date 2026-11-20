@@ -31,8 +31,8 @@ Resources:
 - **Long-range credit assignment.** Information from early tokens can reach the end of the sequence
   unchanged, and so can the gradient back to them, so models can learn dependencies spanning the
   whole context (i.e., they do not suffer from vanishing state gradients).
-- **Competitive at scale.** On OpenWebText, a 112M-parameter MinMax RNC reaches the same validation
-  loss 3.12 as 124M-params GPT-2 124M.
+- **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
+  validation loss 3.12 as GPT-2 of 124M parameters.
 - **Plain PyTorch.** No custom CUDA kernels. Works with `torch.compile` and 
   mixed precision (`amp_dtype`, `scan_dtype`), and is a drop-in sequence backbone or language model.
 
