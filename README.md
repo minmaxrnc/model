@@ -1,4 +1,4 @@
-# MinMax Recurrent Neural Cascades — 
+# MinMax Recurrent Neural Cascades
 
 A parallelisable recurrent architecture truly for long-sequence processing — 
 expressively powerful, efficiently implementable, provably stable, 
