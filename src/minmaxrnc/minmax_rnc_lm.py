@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Alessandro Ronca
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-import warnings
-
 import torch
 import torch.nn as nn
 
@@ -78,11 +76,7 @@ class MinMaxRNC_LM(MinMaxRNC):
     def __init__(self, vocab_size: int, cfg: MinMaxRNCLMConfig):
         self.__lm_cfg   = cfg
         self.__vocab_size = vocab_size
-        # replace() re-runs MinMaxRNCConfig.__post_init__; its warnings were
-        # already shown when the caller built cfg.backbone, so don't repeat them.
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', UserWarning)
-            backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type, ffn_dropout=cfg.ffn_dropout)
+        backbone = replace(cfg.backbone, output_gate=cfg.output_gate, conv_type=cfg.conv_type, ffn_dropout=cfg.ffn_dropout)
         super().__init__(backbone)   # calls reset() → MinMaxRNC.reset() then our additions
         self.__lm_reset()
 

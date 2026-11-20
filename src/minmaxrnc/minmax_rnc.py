@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import contextlib
-import warnings
 
 import torch
 import torch.nn as nn
@@ -12,7 +11,7 @@ from dataclasses import dataclass, replace
 
 from .minmax_layer              import MinMaxLayer, MinMaxLayerConfig, NormType
 from .minmax_neuron             import (
-    MinMaxNeuronConfig, MatrixMinMaxNeuronConfig, SRInitType, ScanDtype, SCAN_DTYPES,
+    MinMaxNeuronConfig, MinMaxNeuronGroupConfig, SRInitType, ScanDtype, SCAN_DTYPES,
 )
 from .modules.feedforward       import FeedForwardConfig, FFType, InitType, create_feedforward
 from .modules.basic_conv        import BasicConvConfig
@@ -27,19 +26,21 @@ _AMP_TORCH_DTYPES = {'bf16': torch.bfloat16, 'fp16': torch.float16}
 
 
 @dataclass(frozen=True)
-class MatrixNeuronGroup:
+class NeuronGroup:
     """
-    One group of matrix MinMax Neurons in every layer (new in 0.4.0).
+    One group of MinMax neurons in every layer (new in 0.4.0): `num_neurons`
+    neurons, each with state dimension `d_state`.
 
-    Entries of MinMaxRNCConfig.matrix_neurons. Each layer gets `num_neurons`
-    independent MatrixMinMaxNeurons of state dimension `d_state`, batched into
-    a single module and a single parallel scan. See MatrixMinMaxNeuronConfig
-    for `n_h` (experimental rank-1-product parametrisation of R_t) and
+    Entries of MinMaxRNCConfig.neurons. Each layer gets one MinMaxNeuronGroup
+    per entry. d_state = 1 gives scalar-state neurons (element-wise
+    recurrence); d_state > 1 gives neurons whose state coordinates interact
+    through a d_state × d_state matrix R_t. See MinMaxNeuronGroupConfig for
+    `n_h` (experimental rank-1-product parametrisation of R_t) and
     `normalize_keys`.
 
     MinMaxRNCConfig also accepts a plain tuple/list
     (d_state[, num_neurons[, n_h[, normalize_keys]]]) in place of a
-    MatrixNeuronGroup, e.g. ``matrix_neurons=[(3, 16)]``.
+    NeuronGroup, e.g. ``neurons=[(3, 16)]``.
     """
 
     d_state:        int
@@ -49,22 +50,27 @@ class MatrixNeuronGroup:
 
     def __post_init__(self):
         if self.d_state <= 0:
-            raise ValueError(f"MatrixNeuronGroup.d_state must be > 0, got {self.d_state}")
+            raise ValueError(f"NeuronGroup.d_state must be > 0, got {self.d_state}")
         if self.num_neurons <= 0:
-            raise ValueError(f"MatrixNeuronGroup.num_neurons must be > 0, got {self.num_neurons}")
+            raise ValueError(f"NeuronGroup.num_neurons must be > 0, got {self.num_neurons}")
         if self.n_h < 0:
-            raise ValueError(f"MatrixNeuronGroup.n_h must be >= 0, got {self.n_h}")
+            raise ValueError(f"NeuronGroup.n_h must be >= 0, got {self.n_h}")
 
     @classmethod
-    def coerce(cls, value) -> 'MatrixNeuronGroup':
+    def coerce(cls, value) -> 'NeuronGroup':
         if isinstance(value, cls):
             return value
         if isinstance(value, (tuple, list)) and 1 <= len(value) <= 4:
             return cls(*value)
         raise TypeError(
-            "Each matrix_neurons entry must be a MatrixNeuronGroup or a tuple/list "
+            "Each neurons entry must be a NeuronGroup or a tuple/list "
             f"(d_state[, num_neurons[, n_h[, normalize_keys]]]), got {value!r}"
         )
+
+    @property
+    def state_size(self) -> int:
+        """Number of state coordinates: num_neurons · d_state."""
+        return self.num_neurons * self.d_state
 
 
 @dataclass(frozen=True)
@@ -82,19 +88,20 @@ class MinMaxRNCConfig:
     n_layers : int
         Number of stacked MinMaxLayers.
     d_state : int
-        Hidden-state dimension of each layer's (diagonal) MinMax Neuron.
-        Independent of d_model; larger values increase memory capacity at
-        linear parameter cost. 0 means no diagonal neuron (new in 0.4.0; the
-        layers must then have matrix neurons).
-    matrix_neurons : tuple[MatrixNeuronGroup | tuple, ...]
-        New in 0.4.0, default () — none. Groups of full-matrix MinMax Neurons
-        added to every layer alongside (or instead of) the diagonal neuron;
-        each entry is a MatrixNeuronGroup or a tuple
-        (d_state[, num_neurons[, n_h[, normalize_keys]]]). Their outputs are
-        summed with the diagonal neuron's. Work scales as d_state³ per scan
-        step, so keep each group's d_state small. A group with d_state=1 is a
-        scalar-state neuron, equivalent to a diagonal one, and triggers a
-        UserWarning.
+        Number of scalar-state MinMax neurons in each layer (equivalently,
+        their total state dimension) — shorthand for a neuron group
+        NeuronGroup(d_state=1, num_neurons=d_state), and the 0.3.0 way of
+        configuring a layer's neurons. Independent of d_model; larger values
+        increase memory capacity at linear parameter cost. 0 means none (new
+        in 0.4.0; `neurons` must then be non-empty).
+    neurons : tuple[NeuronGroup | tuple, ...]
+        New in 0.4.0, default () — none. Further groups of MinMax neurons in
+        every layer, each entry a NeuronGroup or a tuple
+        (d_state[, num_neurons[, n_h[, normalize_keys]]]): num_neurons
+        neurons of state dimension d_state each. All neuron outputs of a
+        layer are summed. Scalar-state groups (d_state=1) cost as much as
+        the `d_state` shorthand; for d_state > 1 the scan's work scales as
+        d_state³ per step, so keep it small and scale with num_neurons.
 
     Normalisation
     -------------
@@ -204,19 +211,19 @@ class MinMaxRNCConfig:
     use_postlayers_ffn: bool = False
 
     # --- new in 0.4.0 (appended, so positional construction is unchanged) ---
-    matrix_neurons:  Tuple[MatrixNeuronGroup, ...] = ()
+    neurons:         Tuple[NeuronGroup, ...] = ()
     scan_dtype:      ScanDtype          = 'ambient'
     amp_dtype:       Optional[AmpDtype] = None
 
     def __post_init__(self):
-        groups = tuple(MatrixNeuronGroup.coerce(g) for g in self.matrix_neurons)
-        object.__setattr__(self, 'matrix_neurons', groups)
+        groups = tuple(NeuronGroup.coerce(g) for g in self.neurons)
+        object.__setattr__(self, 'neurons', groups)
         if self.d_state < 0:
             raise ValueError(f"d_state must be >= 0, got {self.d_state}")
         if self.d_state == 0 and len(groups) == 0:
             raise ValueError(
                 "MinMaxRNCConfig requires at least one neuron per layer: set "
-                "d_state > 0 (diagonal neuron) and/or a non-empty matrix_neurons."
+                "d_state > 0 and/or a non-empty `neurons`."
             )
         if self.scan_dtype not in SCAN_DTYPES:
             raise ValueError(
@@ -228,54 +235,58 @@ class MinMaxRNCConfig:
                 f"Unknown amp_dtype {self.amp_dtype!r}. Valid values: None, "
                 f"{', '.join(map(repr, AMP_DTYPES))}."
             )
-        for g in groups:
-            if g.d_state == 1:
-                warnings.warn(
-                    f"matrix_neurons group {g} has d_state=1: a 1×1 matrix MinMax "
-                    f"neuron is a scalar-state neuron, equivalent to a diagonal "
-                    f"one. Consider adding d_state={g.num_neurons} to the diagonal "
-                    f"neuron instead (fewer parameters, cheaper scan).",
-                    UserWarning,
-                    stacklevel=3,
-                )
+
+    @property
+    def neuron_groups(self) -> Tuple[NeuronGroup, ...]:
+        """All neuron groups of each layer: the `d_state` shorthand (if > 0) first, then `neurons`."""
+        shorthand = (NeuronGroup(d_state=1, num_neurons=self.d_state),) if self.d_state > 0 else ()
+        return shorthand + self.neurons
 
     @property
     def num_neurons_per_layer(self) -> int:
-        """Neurons summed at each layer: 1 per diagonal neuron + every group's num_neurons."""
-        return (1 if self.d_state > 0 else 0) + sum(g.num_neurons for g in self.matrix_neurons)
+        """Number of MinMax neurons in each layer."""
+        return sum(g.num_neurons for g in self.neuron_groups)
+
+    @property
+    def state_size_per_layer(self) -> int:
+        """Number of state coordinates in each layer: Σ num_neurons · d_state."""
+        return sum(g.state_size for g in self.neuron_groups)
 
     @property
     def layer_cfg(self) -> MinMaxLayerConfig:
-        n_in_layer = self.num_neurons_per_layer
+        # Every group's output projection is scaled by the layer's total state
+        # size, so the layer's summed contribution stays O(1) however the
+        # state is split (for a d_state-only layer: exactly as in 0.3.0).
+        state_size = self.state_size_per_layer
         neuron_cfg = None
         if self.d_state > 0:
             neuron_cfg = MinMaxNeuronConfig(
-                _num_blocks           = self.n_layers,
-                d_model               = self.d_model,
-                d_state               = self.d_state,
-                dropout               = self.neuron_dropout,
-                train_init            = self.train_init,
-                output_gate           = self.output_gate,
-                s_r_init              = self.s_r_init,
-                scan_dtype            = self.scan_dtype,
-                _num_neurons_in_layer = n_in_layer,
+                _num_blocks          = self.n_layers,
+                d_model              = self.d_model,
+                d_state              = self.d_state,
+                dropout              = self.neuron_dropout,
+                train_init           = self.train_init,
+                output_gate          = self.output_gate,
+                s_r_init             = self.s_r_init,
+                scan_dtype           = self.scan_dtype,
+                _state_size_in_layer = state_size,
             )
-        matrix_cfgs = tuple(
-            MatrixMinMaxNeuronConfig(
-                _num_blocks           = self.n_layers,
-                d_model               = self.d_model,
-                d_state               = g.d_state,
-                num_neurons           = g.num_neurons,
-                n_h                   = g.n_h,
-                normalize_keys        = g.normalize_keys,
-                dropout               = self.neuron_dropout,
-                train_init            = self.train_init,
-                output_gate           = self.output_gate,
-                s_r_init              = self.s_r_init,
-                scan_dtype            = self.scan_dtype,
-                _num_neurons_in_layer = n_in_layer,
+        group_cfgs = tuple(
+            MinMaxNeuronGroupConfig(
+                _num_blocks          = self.n_layers,
+                d_model              = self.d_model,
+                d_state              = g.d_state,
+                num_neurons          = g.num_neurons,
+                n_h                  = g.n_h,
+                normalize_keys       = g.normalize_keys,
+                dropout              = self.neuron_dropout,
+                train_init           = self.train_init,
+                output_gate          = self.output_gate,
+                s_r_init             = self.s_r_init,
+                scan_dtype           = self.scan_dtype,
+                _state_size_in_layer = state_size,
             )
-            for g in self.matrix_neurons
+            for g in self.neurons
         )
         if self.conv_type == 'basic':
             conv_cfg = BasicConvConfig(embedding_dim=self.d_model)
@@ -301,7 +312,7 @@ class MinMaxRNCConfig:
             feedforward      = ffn_cfg,
             norm             = self.norm,
             first_in_dropout = self.prelayers_dropout,
-            matrix_neurons   = matrix_cfgs,
+            neuron_groups    = group_cfgs,
         )
 
     # ------------------------------------------------------------------
@@ -326,8 +337,7 @@ class MinMaxRNC(nn.Module):
     MinMax Recurrent Neural Cascade — the backbone sequence model.
 
     Stacks ``cfg.n_layers`` MinMaxLayers, each containing a short-range
-    convolution, a feed-forward network, and MinMax Neurons (a diagonal one
-    and/or matrix-neuron groups).  All three sub-layers use pre-norm and
+    convolution, a feed-forward network, and groups of MinMax neurons.  All three sub-layers use pre-norm and
     residual connections.
 
     Inputs

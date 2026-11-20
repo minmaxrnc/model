@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from .minmax_neuron import (
     MinMaxNeuron, MinMaxNeuronConfig,
-    MatrixMinMaxNeuron, MatrixMinMaxNeuronConfig,
+    MinMaxNeuronGroup, MinMaxNeuronGroupConfig,
 )
 
 from .modules.feedforward import FeedForwardConfig, create_feedforward
@@ -31,8 +31,9 @@ class MinMaxLayerConfig:
     Fields
     ------
     neuron : MinMaxNeuronConfig | None
-        Config for the layer's diagonal MinMax Neuron, or None for a layer
-        without one (new in 0.4.0; such a layer must have matrix neurons).
+        Config for the layer's scalar-state neurons (the 0.3.0 MinMax Neuron:
+        MinMaxRNCConfig.d_state of them), or None for none (new in 0.4.0;
+        the layer must then have neuron_groups).
     conv : BasicConvConfig | GatedConvConfig
         Config for the short-range convolution applied before the FFN.
     d_model : int
@@ -46,10 +47,10 @@ class MinMaxLayerConfig:
     norm : 'none' | 'layernorm' | 'rmsnorm'
         Pre-norm applied before each of the three sub-layers (conv, FFN,
         neuron).
-    matrix_neurons : tuple[MatrixMinMaxNeuronConfig, ...]
-        Configs of the layer's matrix-neuron groups (new in 0.4.0; default
-        none). Each becomes one MatrixMinMaxNeuron module; all neuron outputs
-        are summed before the residual add.
+    neuron_groups : tuple[MinMaxNeuronGroupConfig, ...]
+        New in 0.4.0, default none. Further groups of MinMax neurons, of any
+        state dimension. Each becomes one MinMaxNeuronGroup; all neuron
+        outputs of the layer are summed before the residual add.
     """
 
     neuron:           MinMaxNeuronConfig
@@ -59,14 +60,14 @@ class MinMaxLayerConfig:
     feedforward:      Optional[FeedForwardConfig] = None
     norm:             NormType                    = 'layernorm'
     # --- new in 0.4.0 ---
-    matrix_neurons:   Tuple[MatrixMinMaxNeuronConfig, ...] = ()
+    neuron_groups:    Tuple[MinMaxNeuronGroupConfig, ...] = ()
 
     def __post_init__(self):
-        object.__setattr__(self, 'matrix_neurons', tuple(self.matrix_neurons))
-        if self.neuron is None and len(self.matrix_neurons) == 0:
+        object.__setattr__(self, 'neuron_groups', tuple(self.neuron_groups))
+        if self.neuron is None and len(self.neuron_groups) == 0:
             raise ValueError(
-                "MinMaxLayerConfig requires at least one neuron: a diagonal "
-                "`neuron` and/or a non-empty `matrix_neurons`."
+                "MinMaxLayerConfig requires at least one neuron: `neuron` "
+                "and/or a non-empty `neuron_groups`."
             )
 
 
@@ -81,8 +82,12 @@ class MinMaxLayer(nn.Module):
         neur_out  = Neuron( norm(u + conv_out + ffn_out) )
         output    = u + neur_out
 
-    Neuron is the sum of the layer's diagonal MinMaxNeuron (if any) and of
-    every MatrixMinMaxNeuron group (if any), all fed the same input.
+    Neuron is the sum of the outputs of all the layer's MinMax neuron groups,
+    all fed the same input: `neuron` (the MinMaxRNCConfig.d_state shorthand
+    for a group of scalar-state neurons, if present) and each of
+    `neuron_groups`. All groups are MinMaxNeuronGroup instances and are
+    handled identically; `neuron` is a separate attribute only so that
+    parameter names and the recurrent-state format match 0.3.0.
     """
 
     def __init__(self, cfg: MinMaxLayerConfig, first: bool):
@@ -95,13 +100,13 @@ class MinMaxLayer(nn.Module):
         else:
             self.conv = GatedConv(cfg.conv)
 
-        # Construction order (conv → diagonal neuron → matrix neurons → ffn →
-        # norms) and attribute names are chosen so that a diagonal-only layer
+        # Construction order (conv → neuron → neuron_groups → ffn → norms) and
+        # attribute names are chosen so that a layer with only `neuron`
         # consumes the same RNG sequence and has the same state_dict keys as
         # in 0.3.0 (an empty ModuleList contributes no keys).
         self.neuron = MinMaxNeuron(cfg.neuron) if cfg.neuron is not None else None
-        self.matrix_neurons = nn.ModuleList(
-            MatrixMinMaxNeuron(m_cfg) for m_cfg in cfg.matrix_neurons
+        self.neuron_groups = nn.ModuleList(
+            MinMaxNeuronGroup(g_cfg) for g_cfg in cfg.neuron_groups
         )
 
         self.use_ffn = (cfg.feedforward is not None)
@@ -134,18 +139,46 @@ class MinMaxLayer(nn.Module):
             self.norm_neuron = nn.Identity()
 
 
+    # ------------------------------------------------------------------
+    # Uniform view of the layer's neuron groups
+    # ------------------------------------------------------------------
+
+    def neuron_group_list(self):
+        """All the layer's neuron groups: `neuron` (if any), then `neuron_groups`."""
+        groups = [] if self.neuron is None else [self.neuron]
+        groups.extend(self.neuron_groups)
+        return groups
+
+    def _states_to_list(self, state: dict):
+        """Recurrent-state dict → per-group states, aligned with neuron_group_list()."""
+        states = [] if self.neuron is None else [state['neuron']]
+        if len(self.neuron_groups) > 0:
+            states.extend(state['neuron_groups'])
+        return states
+
+    def _states_to_dict(self, states, conv_state, conv_first: bool) -> dict:
+        """Per-group states → recurrent-state dict, in the 0.3.0 format: 'neuron'
+        only with `neuron`, 'neuron_groups' only with neuron_groups. Key order
+        as in 0.3.0: 'neuron', 'conv' for initial_state; 'conv', 'neuron' for
+        the state returned by forward ('neuron_groups' last)."""
+        state = {'conv': conv_state} if conv_first else {}
+        i = 0
+        if self.neuron is not None:
+            state['neuron'] = states[0]
+            i = 1
+        if not conv_first:
+            state['conv'] = conv_state
+        if len(self.neuron_groups) > 0:
+            state['neuron_groups'] = list(states[i:])
+        return state
+
     @property
     def initial_state(self):
-        # Same structure as 0.3.0 for diagonal-only layers; 'neuron' is
-        # omitted without a diagonal neuron, 'matrix_neurons' is present only
-        # with matrix neurons.
-        state = {}
-        if self.neuron is not None:
-            state['neuron'] = self.neuron.initial_state
-        state['conv'] = self.conv.initial_state
-        if len(self.matrix_neurons) > 0:
-            state['matrix_neurons'] = [m.initial_state for m in self.matrix_neurons]
-        return state
+        return self._states_to_dict(
+            [g.initial_state for g in self.neuron_group_list()],
+            self.conv.initial_state,
+            conv_first=False,
+        )
 
 
     def forward(self, u: torch.Tensor, state: dict):
@@ -157,21 +190,17 @@ class MinMaxLayer(nn.Module):
         ffn = self.ffn(ffn_in)
 
         neuron_in = self.norm_neuron(u + conv + ffn)
-        new_state = {}
+
         neuron = None
-        if self.neuron is not None:
-            neuron, new_state['neuron'] = self.neuron(neuron_in, state['neuron'])
-        if len(self.matrix_neurons) > 0:
-            matrix_states = []
-            for m, m_state in zip(self.matrix_neurons, state['matrix_neurons']):
-                out_m, m_state = m(neuron_in, m_state)
-                matrix_states.append(m_state)
-                neuron = out_m if neuron is None else neuron + out_m
-            new_state['matrix_neurons'] = matrix_states
+        new_states = []
+        for group, group_state in zip(self.neuron_group_list(), self._states_to_list(state)):
+            out, group_state = group(neuron_in, group_state)
+            new_states.append(group_state)
+            neuron = out if neuron is None else neuron + out
 
         output = u + neuron
 
-        state = {'conv': conv_state, **new_state}
+        state = self._states_to_dict(new_states, conv_state, conv_first=True)
 
         return output, state
 

@@ -42,55 +42,26 @@ This closure property is what makes the parallel scan possible: instead of
 applying f₁, f₂, …, fₜ one by one, we can compose all prefix products
 simultaneously in O(log T) depth.
 
-### The MinMax Recurrence (diagonal)
+### The MinMax Recurrence
 
-The MinMax Neuron (`MinMaxNeuron`, the default neuron of every layer)
-maintains a hidden state xₜ ∈ Rᴰ updated as:
-
-```
-x_{t+1} = max(min(rₜ, xₜ), sₜ)       (elementwise over D dimensions)
-```
-
-where rₜ and sₜ are linear projections of the current input uₜ ∈ Rᴵ:
-
-```
-rₜ = Wᵣ uₜ      (upper bound — gate / forget signal)
-sₜ = Wₛ uₜ      (lower bound — write / inject signal)
-```
-
-The output is projected back to the input space:
-
-```
-yₜ = Wₒ xₜ                            (output_gate=False)
-yₜ = Wₒ (xₜ ⊙ σ(Wᵍ uₜ))               (output_gate=True)
-```
-
-### The MinMax Recurrence (full matrix)
-
-*New in 0.4.0; opt-in via `MinMaxRNCConfig.matrix_neurons`.*
-
-The MinMax matrix algebra generalises the scalar operator above from
-per-coordinate clamping to a full linear mixing of the state, using the
-(max,min)-semiring in place of ordinary (+,·):
-
-```
-(R ⊗ x)ᵢ = maxⱼ min(Rᵢⱼ, xⱼ)     (matrix-vector product in the (max,min) semiring)
-```
-
-MatrixMinMaxNeuron maintains a hidden state xₜ ∈ Rᴰ updated as:
+A MinMax neuron with state dimension d maintains a hidden state xₜ ∈ Rᵈ,
+updated by the MinMax recurrence — the affine recurrence of the (max,min)
+semiring, where max plays the role of addition and min of multiplication:
 
 ```
 x_{t+1} = max(Rₜ ⊗ xₜ, sₜ)
+(R ⊗ x)ᵢ = maxⱼ min(Rᵢⱼ, xⱼ)       (matrix-vector product in the (max,min) semiring)
 ```
 
-where Rₜ ∈ Rᴰˣᴰ and sₜ ∈ Rᴰ are computed from uₜ. `sₜ = Wₛ uₜ` always; `Rₜ`
-is built one of two ways, selected per neuron group by `n_h`:
+where Rₜ ∈ Rᵈˣᵈ and sₜ ∈ Rᵈ are computed from the current input uₜ ∈ Rᴵ.
+`sₜ = Wₛ uₜ` (the lower bound — write / inject signal). Rₜ is built one of two
+ways, selected by `n_h`:
 
 ```
-n_h = 0 (default):  Rₜ = reshape(Wᵣ uₜ, (D, D))    (D² outputs, reshaped to a matrix)
+n_h = 0 (default):  Rₜ = reshape(Wᵣ uₜ, (d, d))    (d² outputs, reshaped to a matrix)
 
 n_h > 0:            Rₜ = ∏_{i=1}^{n_h} (I - βᵢ(uₜ) kᵢ(uₜ) kᵢ(uₜ)ᵀ)
-                     kᵢ = reshape(Wₖ uₜ, (n_h, D)),  βᵢ = Wᵦ uₜ
+                     kᵢ = reshape(Wₖ uₜ, (n_h, d)),  βᵢ = Wᵦ uₜ
 ```
 
 **Experimental.** The `n_h > 0` form is a product of rank-1 corrections to the identity, in the
@@ -104,22 +75,38 @@ recurrence here is idempotent — every entry of a composed Rₜ (or of xₜ
 itself) is *selected from*, never accumulated from, the individual per-step
 R/s values — so there is no analogous blow-up/vanishing-gradient mode to
 guard against, and no bounding is needed. Either way, `Rₜ` is an ordinary
-real D×D matrix once built, so it feeds into the recurrence/scan below
-identically; params scale as O(d_state²) for `n_h = 0` vs. O(n_h · d_state)
-for `n_h > 0` (typically far fewer once `n_h < d_state`).
+real d×d matrix once built, so it feeds into the recurrence/scan below
+identically; params scale as O(d²) for `n_h = 0` vs. O(n_h · d)
+for `n_h > 0` (typically far fewer once `n_h < d`).
 
 `kᵢ`'s norm is left unconstrained by default: it drifts with `uₜ` and is
 entangled with `βᵢ`, so both jointly determine each factor's magnitude,
 which can make it harder for the network to keep `Rₜ`'s entries in a useful
 range for the (max,min) comparisons. Setting `normalize_keys=True`
-L2-normalises each `kᵢ` along its `D` axis before forming `kᵢ kᵢᵀ`, as
+L2-normalises each `kᵢ` along its `d` axis before forming `kᵢ kᵢᵀ`, as
 DeltaProduct does, so `βᵢ` alone controls the reflection's magnitude — at
 the cost of `k`'s norm no longer carrying information and of coupling
-gradients across all `D` entries of `kᵢ` (they jointly determine one shared
+gradients across all `d` entries of `kᵢ` (they jointly determine one shared
 norm). Only affects neuron groups with `n_h > 0`.
 
-The (max,min)-semiring matrix product ⊗ is associative and distributes over
-element-wise max, so composition closure holds exactly as in the scalar case:
+**Scalar-state neurons (d = 1).** With d = 1, Rₜ = rₜ is a scalar and the
+recurrence becomes
+
+```
+x_{t+1} = max(min(rₜ, xₜ), sₜ)
+rₜ = Wᵣ uₜ      (upper bound — gate / forget signal)
+sₜ = Wₛ uₜ      (lower bound — write / inject signal)
+```
+
+This is the neuron of 0.3.0: `MinMaxRNCConfig.d_state = D` gives every layer
+D scalar-state neurons, i.e. a state xₜ ∈ Rᴰ updated element-wise. Scalar-state
+neurons are evaluated with a dedicated element-wise scan, so their cost per
+step is O(1) per neuron. More generally, a d × d matrix whose off-diagonal
+entries are -∞ decouples the coordinates into d scalar-state neurons.
+
+**Closure under composition.** The (max,min)-semiring matrix product ⊗ is
+associative and distributes over element-wise max, so the composition of two
+MinMax maps is again a MinMax map — exactly as in the scalar case above:
 
 ```
 f₂(f₁(x)) = max(R ⊗ x, s)
@@ -127,16 +114,14 @@ f₂(f₁(x)) = max(R ⊗ x, s)
   s = max(R₂ ⊗ s₁, s₂)
 ```
 
-Setting the off-diagonal entries of Rₜ to -∞ recovers the diagonal recurrence
-exactly, so the diagonal MinMaxNeuron is a (much cheaper) special case: the matrix
-neuron's parameter count and per-step scan cost scale as O(D²) and O(D³)
-respectively (vs. O(D) and O(D) for the diagonal neuron), so d_state should
-typically be kept small for matrix neurons — `MinMaxRNCConfig.matrix_neurons`
-combines several groups of independent small-matrix neurons per layer rather
-than growing one large one. With D = 1 the two neurons coincide (a 1×1 group
-triggers a warning suggesting the diagonal neuron instead).
+**Cost.** Per neuron, parameters scale as O(d²) (O(n_h · d) for `n_h > 0`) and
+each composition step of the scan as O(d³). A neuron with state dimension d
+can realise permutation semiautomata of degree d, so d should be as large as
+the task needs but typically small; layers scale by having more neurons
+(`num_neurons`) and more neuron groups rather than larger d.
 
-Output projection is identical in form to the diagonal neuron:
+**Output.** Each neuron's state is projected back to the input space, and
+the outputs of all neurons in a layer are summed:
 
 ```
 yₜ = Wₒ xₜ                            (output_gate=False)
@@ -156,8 +141,14 @@ can be computed in parallel:
 2. **Batch apply** — evaluate every prefix operator on x₀ simultaneously:
    xₜ = Fₜ(x₀).
 
+For scalar-state neurons the scan is element-wise (`minmax_scan.all_states`);
+for d > 1 it composes d × d matrices (`minmax_scan.all_states_matrix`), with
+the neurons of a group folded into the batch axis.
+
 At inference time (token-by-token generation) the recurrence runs
-sequentially as a standard RNN with O(1) cost per step and O(D) state.
+sequentially as a standard RNN with constant cost per step and a state of
+fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
+over chunks of k steps and the recurrence across chunks.
 
 ---
 
@@ -170,33 +161,32 @@ MinMaxRNC_LM
     ├── MinMaxLayer × n_layers
     │   ├── norm_conv   → BasicConv / GatedConv
     │   ├── norm_ffn    → FeedForward / GatedFeedForward
-    │   └── norm_neuron → MinMaxNeuron              (if d_state > 0)
-    │                   + MatrixMinMaxNeuron × groups (if matrix_neurons)
+    │   └── norm_neuron → Σ MinMaxNeuronGroup   (neuron: d_state shorthand,
+    │                                            neuron_groups: `neurons`)
     └── postlayers_ffn  (optional)
     └── postlayers_norm
 └── head_drop   : Dropout
 └── lm_head     : Linear(d_model, vocab_size)
 ```
 
-### MinMax Neuron
+### MinMax Neuron Groups
 
-The recurrent cell. Projects the input to upper-bound (r) and lower-bound (s)
-signals, runs the parallel MinMax scan, and projects the resulting hidden
-states back to the residual-stream dimension.
+`MinMaxNeuronGroup` implements `num_neurons` neurons with the same state
+dimension d, fed the same input. It projects the input to sₜ and Rₜ, runs one
+batched parallel scan for all its neurons, and projects the resulting states
+back to the residual-stream dimension; the neurons' outputs are summed
+through a single `Linear(num_neurons·d, d_model)`. This is exactly equivalent
+to `num_neurons` separate neurons whose outputs are summed; only the compute
+is batched.
 
-Learnable parameters: Wᵣ, Wₛ, Wₒ (and optionally Wᵍ, x₀).
-
-### Matrix MinMax Neurons
-
-`MatrixMinMaxNeuron` (new in 0.4.0) implements one *group* of `num_neurons`
-independent matrix neurons of the same `d_state`, fed the same input. The
-group's scans run as one batched parallel scan (the neuron axis is folded into
-the batch axis) and its outputs are summed through a single
-`Linear(num_neurons·D, d_model)`. This is exactly equivalent to `num_neurons`
-separate neurons whose outputs are summed; only the compute is batched.
+The group's state is the flat vector of its `num_neurons · d` coordinates
+(neuron-major). For d = 1 the group is evaluated with the element-wise scan
+and every parameter, tensor and operation is exactly that of 0.3.0's MinMax
+Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of `d_state`
+scalar-state neurons.
 
 Learnable parameters: Wₛ, Wᵣ (or Wₖ, Wᵦ when `n_h > 0`), Wₒ (and optionally
-Wᵍ, x₀) — per neuron of the group.
+Wᵍ, x₀).
 
 ### MinMax Layer
 
@@ -210,12 +200,13 @@ neuron = Neuron( norm(u + conv + ffn) )
 output = u + neuron
 ```
 
-where `Neuron` is the sum of the layer's diagonal MinMaxNeuron (if
-`d_state > 0`) and of every matrix-neuron group (if any), all reading the
-same normalised input. Each neuron's output projection is initialised with
-`wang_init_` scaled by the total number of neurons in the layer, so the
-layer's overall contribution to the residual stream stays O(1) regardless of
-how its neurons are split.
+where `Neuron` is the sum of the outputs of all the layer's neuron groups,
+all reading the same normalised input: the `d_state` shorthand group (if
+`d_state > 0`, registered as `neuron` for compatibility with 0.3.0) and each
+group of `neurons` (registered in `neuron_groups`). Each group's output
+projection is initialised with `wang_init_` using the layer's total state
+size Σ num_neurons · d as `dim`, so the layer's overall contribution to the
+residual stream stays O(1) however its state is split across groups.
 
 Conv and FFN outputs are used to compute a richer input for the neuron but
 are not independently added to the residual stream.  The convolution provides
@@ -260,7 +251,7 @@ All architecture hyperparameters are specified through a single flat
 |---|---|---|---|
 | `d_model` | int | — | Residual-stream / embedding width |
 | `n_layers` | int | — | Number of MinMaxLayers |
-| `d_state` | int | `0` | Hidden-state dimension of each layer's diagonal neuron; `0` = no diagonal neuron (then `matrix_neurons` is required) |
+| `d_state` | int | `0` | Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, d_state)`); `0` = none (then `neurons` is required) |
 | `norm` | str | `'layernorm'` | In-layer pre-norm: `'layernorm'`, `'rmsnorm'`, `'none'` |
 | `postlayers_norm` | str | `'layernorm'` | Norm applied after the final layer |
 | `ffn_type` | str | `'gated'` | `'gated'` (ReGLU/SwiGLU) or `'basic'` (MLP) |
@@ -276,7 +267,7 @@ All architecture hyperparameters are specified through a single flat
 | `conv_init_val` | float | `0.0` | Initial gate logit for GatedConv |
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
-| `matrix_neurons` | tuple | `()` | *0.4.0.* Matrix-neuron groups per layer: `MatrixNeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or equivalent tuples/lists |
+| `neurons` | tuple | `()` | *0.4.0.* Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or equivalent tuples/lists |
 | `scan_dtype` | str | `'ambient'` | *0.4.0.* Scan precision: `'ambient'` (no casting, 0.3.0 behaviour), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
 | `amp_dtype` | str \| None | `None` | *0.4.0.* Model-level autocast: `None` (caller decides, 0.3.0 behaviour), `'bf16'`, `'fp16'` |
 
@@ -322,7 +313,7 @@ model. Loss scaling for fp16 (`torch.amp.GradScaler`) stays with the caller.
 | Value | Scan inputs | Autocast during scan | Carried state |
 |---|---|---|---|
 | `'ambient'` | as they arrive (no casting) | unchanged | whatever the scan produced |
-| `'fp32'` / `'bf16'` / `'fp16'` | cast to that dtype (for matrix neurons, Rₜ is also *built* in it) | disabled | that dtype |
+| `'fp32'` / `'bf16'` / `'fp16'` | cast to that dtype (Rₜ is also *built* in it) | disabled | that dtype |
 
 With a pinned value, the scan's outputs are cast back to the ambient compute
 dtype before the output gate and projection.

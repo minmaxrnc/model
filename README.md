@@ -16,7 +16,7 @@ Resources:
   "which phase are we in?" over arbitrarily long sequences. 
   Models trained on short sequences have been evaluated without loss of accuracy on sequences of
   over a million tokens. (Formally: all star-free languages with scalar-state neurons, up to all
-  regular languages with matrix neurons)
+  regular languages with neurons of larger state dimension)
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in parallel over
   a whole sequence with a prefix scan (O(log T) depth), step by step as a recurrence (constant
   compute and memory per token, no KV cache), or by interleaving the two: parallel over chunks of k
@@ -44,11 +44,15 @@ residual connections:
 
 1. **Convolution** — one-step causal mixing.
 2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax Neuron** — the recurrent cell, updating a hidden state
-   `x_{t+1} = max(min(r_t, x_t), s_t)` element-wise in parallel via a prefix scan.
-   Since 0.4.0 a layer can additionally (or instead) hold groups of
-   **matrix MinMax neurons**, `x_{t+1} = max(R_t ⊗ x_t, s_t)` in the
-   (max,min) semiring — see [Matrix neurons](#matrix-neurons).
+3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state
+   dimension `d` updates its state `x_t ∈ R^d` by the MinMax recurrence
+   `x_{t+1} = max(R_t ⊗ x_t, s_t)`, the affine recurrence of the (max,min)
+   semiring, with the `d × d` matrix `R_t` and the vector `s_t` computed from
+   the input. With `d = 1` the state is a scalar and the recurrence reads
+   `x_{t+1} = max(min(r_t, x_t), s_t)`; with larger `d` the state coordinates
+   interact. Each layer holds groups of neurons, of any state dimensions,
+   evaluated with a parallel prefix scan, and sums their outputs (see
+   [Neurons of any state dimension](#neurons-of-any-state-dimension)).
 
 
 ## Installation
@@ -110,7 +114,7 @@ from minmaxrnc import MinMaxRNC, MinMaxRNCConfig
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
-    d_state          = 192,       # hidden-state dimension per neuron
+    d_state          = 192,       # 192 scalar-state neurons per layer
     norm             = 'rmsnorm',
     ffn_type         = 'gated',
     ffn_act_fn       = 'swish',   # → SwiGLU
@@ -128,54 +132,56 @@ model = MinMaxRNC(cfg)
 | `medium` | 512       | 8          | 512       | ~16.6 M               | ~42.4 M                      |
 | `large`  | 728       | 12         | 1456      | ~75.9 M               | ~112.5 M                     |
 
-### Matrix neurons
+### Neurons of any state dimension
 
-New in 0.4.0. Besides the diagonal neuron (`d_state`), every layer can hold
-groups of **matrix MinMax neurons**, whose state transition is a full
+A MinMax neuron can have any state dimension `d`. Its state transition is a
 `d × d` matrix applied in the (max,min) semiring,
-`(R_t ⊗ x)_i = max_j min(R_t[i,j], x_j)`, so state dimensions can mix:
+`(R_t ⊗ x)_i = max_j min(R_t[i,j], x_j)`; a neuron with state dimension `d`
+can realise permutation semiautomata of degree `d`. Each layer holds one or
+more **neuron groups**, each made of `num_neurons` neurons with the same
+state dimension, configured through `neurons` (and `d_state`, see below):
 
 ```python
-from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, MatrixNeuronGroup
+from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
 
 cfg = MinMaxRNCConfig(
-    d_model        = 90,
-    n_layers       = 2,
-    d_state        = 0,                       # no diagonal neuron (or > 0 to keep one)
-    matrix_neurons = [
-        MatrixNeuronGroup(d_state=3, num_neurons=16),   # 16 independent 3×3 neurons
-        (4, 2),                                         # tuple shorthand: d_state=4, num_neurons=2
+    d_model = 90,
+    n_layers = 2,
+    d_state = 64,                                   # 64 scalar-state neurons
+    neurons = [
+        NeuronGroup(d_state=3, num_neurons=16),     # 16 neurons with 3-dimensional state
+        (4, 2),                                     # tuple shorthand: d_state=4, num_neurons=2
     ],
 )
 model = MinMaxRNC(cfg)
 ```
 
-Each entry is a `MatrixNeuronGroup(d_state, num_neurons=1, n_h=0,
+Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1, n_h=0,
 normalize_keys=False)` or the equivalent tuple/list (handy for YAML configs).
-The neurons of a group run as a single batched parallel scan; all neuron
-outputs of a layer (diagonal and matrix) are summed.
+`MinMaxRNCConfig.d_state = N` is shorthand for the group
+`NeuronGroup(d_state=1, num_neurons=N)` — `N` scalar-state neurons — and is
+how 0.3.0 configured a layer. Each group runs as a single batched parallel
+scan, and all neuron outputs of a layer are summed.
 
 Things to know:
 
-- **Cost.** Each scan step composes `d × d` matrices: work is
-  O(num_neurons · T log T · d³) and the scan materialises a
-  `(B·num_neurons, T, d, d, d)` intermediate. Keep each group's `d_state`
-  small (≈ 2–8) and scale with `num_neurons` and more groups instead.
-- **`d_state=1` groups warn.** A 1×1 matrix neuron is a scalar-state
-  neuron, equivalent to a diagonal one; use `d_state=num_neurons` on the
-  diagonal neuron instead.
+- **Cost.** Scalar-state neurons (`d_state=1`, in either form) use an
+  element-wise scan: O(T log T) work per neuron, exactly the 0.3.0
+  computation. For `d > 1` each scan step composes `d × d` matrices: work is
+  O(num_neurons · T log T · d³), and the scan materialises a
+  `(B·num_neurons, T, d, d, d)` intermediate. Keep `d` small (≈ 2–8) and
+  scale with `num_neurons` and more groups instead.
 - **`n_h > 0` is experimental.** It builds `R_t` as a product of `n_h`
   rank-1 corrections to the identity (DeltaProduct-style,
   `∏ (I − β_i k_i k_iᵀ)`, optionally with `normalize_keys`), with fewer
   parameters than the default unconstrained projection. It has produced no
   positive results in our experiments so far.
-- **Evidence so far.** On group state-tracking benchmarks, matrix neurons
-  with `n_h=0` learn S3 and generalise to much longer sequences than seen in
+- **Evidence so far.** On group state-tracking benchmarks, neurons with
+  state dimension 3 and `n_h=0` learn S3 and generalise to much longer sequences than seen in
   training, but results vary across seeds; S4 is solved only on some seeds,
   and larger groups (A5, S5) have not been solved yet.
 
-See [`docs/model.md`](docs/model.md#the-minmax-recurrence-full-matrix) for
-the maths.
+See [`docs/model.md`](docs/model.md#the-minmax-recurrence) for the maths.
 
 ### Mixed precision
 
@@ -227,26 +233,30 @@ Notes:
 - **Same API.** Every 0.3.0 class, config field and argument keeps its name,
   position and meaning, including positional `MinMaxRNCConfig(d_model,
   n_layers, d_state)`. New config fields are appended after the existing
-  ones and default to the 0.3.0 behaviour (`matrix_neurons=()`,
-  `scan_dtype='ambient'`, `amp_dtype=None`). `MinMaxNeuron` is still the
-  diagonal neuron; the matrix neuron is the new `MatrixMinMaxNeuron`.
+  ones and default to the 0.3.0 behaviour (`neurons=()`,
+  `scan_dtype='ambient'`, `amp_dtype=None`). `MinMaxNeuron(cfg)` still
+  builds the layer's `cfg.d_state` scalar-state neurons; it is now a special
+  case of the new `MinMaxNeuronGroup`, which implements neurons of any state
+  dimension.
 - **Same weights.** With the defaults, a model has the same parameter names,
   shapes and seeded initial values as in 0.3.0, so 0.3.0 checkpoints load
   with `load_state_dict(strict=True)` and no key remapping.
-- **Same outputs.** Outputs and recurrent states are identical to 0.3.0, in
-  fp32 and under a caller-side `torch.autocast`. The test suite checks this
+- **Same outputs and computation.** Outputs and recurrent states are
+  identical to 0.3.0, in fp32 and under a caller-side `torch.autocast`, and
+  the forward pass runs exactly the same sequence of PyTorch operations, so
+  speed and memory use are unchanged. The test suite checks all of this
   against reference values recorded with 0.3.0
   (`tests/test_backward_compat.py`).
 - **Recurrent state format.** Per layer it is still
-  `{'neuron': …, 'conv': …}`; models with matrix neurons add a
-  `'matrix_neurons': [...]` entry, and models with `d_state=0` have no
-  `'neuron'` entry.
+  `{'neuron': …, 'conv': …}`; models with `neurons` groups add a
+  `'neuron_groups': [...]` entry (one `(B, num_neurons · d_state)` state per
+  group), and models with `d_state=0` have no `'neuron'` entry.
 - **Small behaviour changes**, only for configs 0.3.0 rejected anyway:
   `d_state` now defaults to 0, so leaving it out raises a `ValueError`
-  (instead of a `TypeError`) unless `matrix_neurons` is given; invalid
+  (instead of a `TypeError`) unless `neurons` is given; invalid
   `scan_dtype`/`amp_dtype` values raise `ValueError`.
 - **From the matrix-neuron experiment branch**, rename config keys
-  `diagonal_d_state → d_state` and `d_states → matrix_neurons` (the
+  `diagonal_d_state → d_state` and `d_states → neurons` (the
   `(d_state, num_neurons, n_h)` triples are accepted as-is), plus the global
   `normalize_keys` becomes a per-group field. Its checkpoints use different
   parameter names (`neurons.N.*`) and do not load directly.

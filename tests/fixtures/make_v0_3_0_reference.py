@@ -7,8 +7,9 @@ Generate tests/fixtures/v0_3_0_reference.pt from a *pristine 0.3.0* checkout.
 This records, for a handful of small configurations, everything a later
 version needs to prove it still behaves exactly like 0.3.0: the seeded
 initial parameters, outputs and final recurrent state for a fixed input (in
-fp32 and under an outer CPU bf16 autocast), and the parameter counts of the
-preset sizes.
+fp32 and under an outer CPU bf16 autocast), the sequence of aten operations
+of the forward pass (traced with make_fx; compared only under the same torch
+minor version), and the parameter counts of the preset sizes.
 
 Usage (run once, against minmaxrnc 0.3.0 — NOT against the current tree):
 
@@ -58,6 +59,19 @@ def _detach_state(state):
     return state
 
 
+def trace_aten_ops(model, inp, unroll):
+    """
+    The forward pass's sequence of aten operations, traced with make_fx.
+
+    tests/test_backward_compat.py has an identical copy of this function; keep
+    them in sync.
+    """
+    from torch.fx.experimental.proxy_tensor import make_fx
+    with torch.no_grad():
+        graph = make_fx(lambda x: model(x, unroll, return_state=True))(inp)
+    return [str(n.target) for n in graph.graph.nodes if n.op == 'call_function']
+
+
 def build(M, kind, kwargs):
     torch.manual_seed(SEED)
     backbone = M.MinMaxRNCConfig(**kwargs)
@@ -101,6 +115,7 @@ def main():
             state        = _detach_state(state),
             output_bf16  = y_bf16.detach().clone(),
             state_bf16   = _detach_state(state_bf16),
+            aten_ops     = trace_aten_ops(model, u, UNROLL),
         )
 
     presets = {}

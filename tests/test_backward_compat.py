@@ -9,8 +9,8 @@ The reference values in tests/fixtures/v0_3_0_reference.pt were produced by
 tests/fixtures/make_v0_3_0_reference.py running against a pristine 0.3.0
 checkout (commit 6ea620f). They cover several configurations and record the
 seeded initial parameters, fp32 outputs and final state for a chunked forward
-pass, the same under an outer CPU bf16 autocast, and the preset parameter
-counts.
+pass, the same under an outer CPU bf16 autocast, the forward pass's sequence
+of aten operations, and the preset parameter counts.
 """
 
 import inspect
@@ -39,6 +39,18 @@ def _build(kind, kwargs):
     if kind == 'lm':
         return MinMaxRNC_LM(META['vocab'], MinMaxRNCLMConfig(backbone=backbone))
     return MinMaxRNC(backbone)
+
+
+def trace_aten_ops(model, inp, unroll):
+    """Identical copy of tests/fixtures/make_v0_3_0_reference.py's tracer."""
+    from torch.fx.experimental.proxy_tensor import make_fx
+    with torch.no_grad():
+        graph = make_fx(lambda x: model(x, unroll, return_state=True))(inp)
+    return [str(n.target) for n in graph.graph.nodes if n.op == 'call_function']
+
+
+def _same_torch_minor(version_a: str, version_b: str) -> bool:
+    return version_a.split('.')[:2] == version_b.split('.')[:2]
 
 
 def _assert_state_equal(test, actual, expected, atol=1e-6, rtol=1e-5):
@@ -121,6 +133,19 @@ class TestV030ReferenceBehaviour(unittest.TestCase):
                 y = model(rec['input'], META['unroll'])
             torch.testing.assert_close(y, rec['output'], atol=1e-6, rtol=1e-5)
 
+    @unittest.skipUnless(
+        _same_torch_minor(torch.__version__, META['torch_version']),
+        f"aten op sequences were recorded with torch {META['torch_version']}; "
+        f"traces are only comparable within the same torch minor version",
+    )
+    def test_forward_graph_identical_to_v030(self):
+        """The forward pass runs exactly the same aten operations, in the same
+        order, as 0.3.0 — no extra reshapes, casts or kernels in the
+        scalar-state path."""
+        for _, rec in self._each():
+            model = _build(rec['kind'], rec['kwargs']).eval()
+            self.assertEqual(trace_aten_ops(model, rec['input'], META['unroll']), rec['aten_ops'])
+
     def test_preset_parameter_counts_unchanged(self):
         for preset, n in REF['presets'].items():
             with self.subTest(preset=preset):
@@ -156,7 +181,7 @@ class TestV030Api(unittest.TestCase):
 
     def test_new_settings_default_to_v030_behaviour(self):
         cfg = MinMaxRNCConfig(16, 1, 8)
-        self.assertEqual(cfg.matrix_neurons, ())
+        self.assertEqual(cfg.neurons, ())
         self.assertEqual(cfg.scan_dtype, 'ambient')
         self.assertIsNone(cfg.amp_dtype)
 
@@ -177,7 +202,7 @@ class TestV030Api(unittest.TestCase):
         model = MinMaxRNC(MinMaxRNCConfig(16, 2, 8))
         for layer in model.layers:
             self.assertIsInstance(layer.neuron, MinMaxNeuron)
-            self.assertEqual(len(layer.matrix_neurons), 0)
+            self.assertEqual(len(layer.neuron_groups), 0)
         for layer_state in model.initial_state:
             self.assertEqual(list(layer_state.keys()), ['neuron', 'conv'])
         _, state = model(torch.randn(1, 4, 16), 4, return_state=True)

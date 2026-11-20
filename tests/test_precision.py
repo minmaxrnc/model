@@ -24,12 +24,15 @@ from minmaxrnc.minmax_rnc_lm import MinMaxRNC_LM, MinMaxRNCLMConfig
 
 DT = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}
 
-# (name, kwargs) — diagonal only, matrix only (n_h=0 and n_h>0), mixed.
+# (name, kwargs) — the d_state shorthand, explicit scalar-state groups (n_h=0
+# and n_h>0), groups with d > 1 (n_h=0 and n_h>0), and a mix of all.
 ARCHS = [
-    ('diagonal', dict(d_state=6)),
-    ('matrix',   dict(d_state=0, matrix_neurons=[(3, 2)])),
-    ('lowrank',  dict(d_state=0, matrix_neurons=[(3, 2, 2)])),
-    ('mixed',    dict(d_state=4, matrix_neurons=[(3, 2), (2, 1, 2)])),
+    ('d_state',        dict(d_state=6)),
+    ('scalar',         dict(d_state=0, neurons=[(1, 6)])),
+    ('scalar_lowrank', dict(d_state=0, neurons=[(1, 6, 2)])),
+    ('matrix',         dict(d_state=0, neurons=[(3, 2)])),
+    ('lowrank',        dict(d_state=0, neurons=[(3, 2, 2)])),
+    ('mixed',          dict(d_state=4, neurons=[(3, 2), (2, 1, 2), (1, 3)])),
 ]
 
 
@@ -83,7 +86,7 @@ def _flat_states(state):
     for layer in state:
         if 'neuron' in layer:
             out.append(layer['neuron'])
-        out.extend(layer.get('matrix_neurons', []))
+        out.extend(layer.get('neuron_groups', []))
     return out
 
 
@@ -136,10 +139,10 @@ class TestScanDtype(unittest.TestCase):
 
     def test_pinned_rank1_products_run_at_pinned_dtype(self):
         """With n_h > 0 the R_t construction (eye, matmuls) runs inside the
-        pinned region, so R_t has the pinned dtype for every n_h."""
+        pinned region, so R_t has the pinned dtype for every n_h (d > 1)."""
         for n_h in (1, 2, 3):
             with self.subTest(n_h=n_h):
-                model = _model('fp32', arch=dict(d_state=0, matrix_neurons=[(3, 2, n_h)]))
+                model = _model('fp32', arch=dict(d_state=0, neurons=[(3, 2, n_h)]))
                 _, _, calls = self._run(model, outer='bf16')
                 for _, dtypes, _ in calls:
                     self.assertEqual(dtypes[0], torch.float32)   # R
