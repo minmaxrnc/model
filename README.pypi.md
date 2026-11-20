@@ -172,8 +172,8 @@ cfg = MinMaxRNCConfig(
 model = MinMaxRNC(cfg)
 ```
 
-Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1, n_h=0,
-normalize_keys=False)` or the equivalent tuple/list (handy for YAML configs).
+Each entry of `neurons` is a `NeuronGroup(d_state, num_neurons=1)` or the
+equivalent tuple/list (handy for YAML configs).
 `scalar_neurons = N` is shorthand for the group
 `NeuronGroup(d_state=1, num_neurons=N)`: `N` scalar-state neurons. Each group
 runs as a single batched parallel scan, and all neuron outputs of a layer are
@@ -187,14 +187,8 @@ Things to know:
   <em>O</em>(<em>K</em> · <em>T</em> log <em>T</em> · <em>d</em><sup>3</sup>) for <em>K</em> = `num_neurons`, and the scan materialises a
   `(B·num_neurons, T, d, d, d)` intermediate. Keep <em>d</em> small (≈ 2–8) and
   scale with `num_neurons` and more groups instead.
-- **`n_h > 0` is experimental.** It builds <em>R</em><sub><em>t</em></sub> as a product of `n_h`
-  rank-1 corrections to the identity (DeltaProduct-style,
-  ∏<sub><em>i</em></sub> (<em>I</em> − β<sub><em>i</em></sub> <em>k</em><sub><em>i</em></sub> <em>k</em><sub><em>i</em></sub><sup>⊤</sup>),
-  optionally with `normalize_keys`), with fewer
-  parameters than the default unconstrained projection. It has produced no
-  positive results in our experiments so far.
 - **Evidence so far.** On group state-tracking benchmarks, neurons with
-  state dimension 3 and `n_h=0` learn <em>S</em><sub>3</sub> and generalise to much longer sequences than seen in
+  state dimension 3 learn <em>S</em><sub>3</sub> and generalise to much longer sequences than seen in
   training, but results vary across seeds; <em>S</em><sub>4</sub> is solved only on some seeds,
   and larger groups (<em>A</em><sub>5</sub>, <em>S</em><sub>5</sub>) have not been solved yet.
 
@@ -275,10 +269,12 @@ Notes:
   (instead of a `TypeError`) unless `scalar_neurons` or `neurons` is given; invalid
   `scan_dtype`/`amp_dtype` values raise `ValueError`.
 - **From the matrix-neuron experiment branch**, rename config keys
-  `diagonal_d_state → scalar_neurons` and `d_states → neurons` (the
-  `(d_state, num_neurons, n_h)` triples are accepted as-is), plus the global
-  `normalize_keys` becomes a per-group field. Its checkpoints use different
-  parameter names (`neurons.N.*`) and do not load directly.
+  `diagonal_d_state → scalar_neurons` and `d_states → neurons`, turning each
+  `(d_state, num_neurons, n_h)` triple into a `(d_state, num_neurons)` pair.
+  Only `n_h = 0` is supported (the rank-1-product parametrisation of
+  `n_h > 0`, and with it `normalize_keys`, was dropped). That branch's
+  checkpoints use different parameter names (`neurons.N.*`) and do not load
+  directly.
 
 See [CHANGELOG.md](https://github.com/minmaxrnc/model/blob/v0.4.0/CHANGELOG.md) for the full list of changes.
 

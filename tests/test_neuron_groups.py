@@ -11,7 +11,6 @@ TestMinMaxMatrixScan       — matrix parallel scan vs sequential reference
 TestGroupBatching          — num_neurons > 1 ≡ separate neurons summed
 TestScalarStateGroups      — d_state = 1: element-wise path, ≡ 0.3.0 neuron, ≡ matrix path
 TestScalarNeuronsField     — MinMaxRNCConfig.scalar_neurons ≡ its legacy name d_state
-TestLowRankTransition      — n_h > 0 rank-1-product parametrisation of R_t
 TestOutputInitScaling      — wang_init_ scaling by the layer's total state size
 TestNeuronsConfig          — MinMaxRNCConfig.neurons parsing and validation
 TestLayersAndModels        — layers/models mixing groups of different state dimensions
@@ -144,7 +143,7 @@ class TestGroupBatching(unittest.TestCase):
 
     def test_defaults(self):
         cfg = MinMaxNeuronGroupConfig(_num_blocks=1, d_model=8, d_state=4)
-        self.assertEqual((cfg.num_neurons, cfg.n_h, cfg.normalize_keys), (1, 0, False))
+        self.assertEqual(cfg.num_neurons, 1)
         self.assertEqual(MinMaxNeuronGroup(cfg).initial_state.shape, (4,))
 
     def test_shapes_use_flat_state_layout(self):
@@ -207,9 +206,7 @@ class TestScalarStateGroups(unittest.TestCase):
         return set(calls)
 
     def test_d1_uses_elementwise_scan(self):
-        for n_h in (0, 2):
-            with self.subTest(n_h=n_h):
-                self.assertEqual(self._scans_used(_group(d_state=1, num_neurons=6, n_h=n_h)), {'all_states'})
+        self.assertEqual(self._scans_used(_group(d_state=1, num_neurons=6)), {'all_states'})
 
     def test_d_gt_1_uses_matrix_scan(self):
         self.assertEqual(self._scans_used(_group(d_state=3, num_neurons=2)), {'all_states_matrix'})
@@ -217,18 +214,16 @@ class TestScalarStateGroups(unittest.TestCase):
     def test_d1_elementwise_path_equals_matrix_path(self):
         """For d = 1 the element-wise scan is just a faster evaluation of the
         same recurrence: forcing the matrix path gives the same states."""
-        for n_h in (0, 2):
-            with self.subTest(n_h=n_h):
-                torch.manual_seed(0)
-                g = _group(d_model=8, d_state=1, num_neurons=5, n_h=n_h)
-                B, T = 2, 9
-                u = torch.randn(B, T, 8)
-                s, proj = g.s(u), g._project_transition(u)
-                x0 = torch.randn(B, 5)
-                torch.testing.assert_close(
-                    g._scan_scalar(s, proj, x0, B, T),
-                    g._scan_matrix(s, proj, x0, B, T),
-                )
+        torch.manual_seed(0)
+        g = _group(d_model=8, d_state=1, num_neurons=5)
+        B, T = 2, 9
+        u = torch.randn(B, T, 8)
+        s, r = g.s(u), g.r(u)
+        x0 = torch.randn(B, 5)
+        torch.testing.assert_close(
+            g._scan_scalar(s, r, x0, B, T),
+            g._scan_matrix(s, r, x0, B, T),
+        )
 
     def test_minmax_neuron_is_a_group_of_scalar_state_neurons(self):
         n = MinMaxNeuron(MinMaxNeuronConfig(_num_blocks=1, d_model=8, d_state=6))
@@ -333,87 +328,45 @@ class TestScalarNeuronsField(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Low-rank transition (n_h > 0, experimental)
+# Transition matrix R_t
 # ---------------------------------------------------------------------------
 
-class TestLowRankTransition(unittest.TestCase):
+class TestTransitionMatrix(unittest.TestCase):
 
-    def test_n_h_zero_uses_r_not_k_beta(self):
-        g = _group(n_h=0)
-        self.assertTrue(hasattr(g, 'r'))
-        self.assertFalse(hasattr(g, 'k'))
-        self.assertFalse(hasattr(g, 'beta'))
+    def test_r_projection_shape(self):
+        g = _group(d_model=10, d_state=3, num_neurons=5)
+        self.assertEqual((g.r.in_features, g.r.out_features), (10, 5 * 3 * 3))
+        for name in ('k', 'beta'):
+            self.assertFalse(hasattr(g, name))
 
-    def test_n_h_positive_uses_k_beta_not_r(self):
-        g = _group(n_h=2)
-        self.assertFalse(hasattr(g, 'r'))
-        self.assertTrue(hasattr(g, 'k'))
-        self.assertTrue(hasattr(g, 'beta'))
-
-    def test_shapes(self):
-        g = _group(d_model=10, d_state=3, num_neurons=5, n_h=2)
-        out, state = g(torch.randn(2, 6, 10), g.initial_state)
-        self.assertEqual(out.shape, (2, 6, 10))
-        self.assertEqual(state.shape, (2, 15))
-
-    def _check_R(self, normalize_keys):
+    def test_matrix_path_matches_sequential_recurrence(self):
+        """The group's states equal a step-by-step loop of
+        x_{t+1} = max(R_{t+1} ⊗ x_t, s_{t+1}) with R_{t+1} = reshape(W_r u_{t+1})."""
         torch.manual_seed(0)
-        d_model, d, K, n_h, B, T = 6, 3, 2, 3, 2, 4
-        g = _group(d_model=d_model, d_state=d, num_neurons=K, n_h=n_h, normalize_keys=normalize_keys)
+        d_model, d, K, B, T = 6, 3, 2, 2, 5
+        g = _group(d_model=d_model, d_state=d, num_neurons=K).eval()
         u = torch.randn(B, T, d_model)
-        R = g._compute_R_low_rank(u, B, T)
-        k    = g.k(u).view(B, T, K, n_h, d)
-        beta = g.beta(u).view(B, T, K, n_h)
-        eye  = torch.eye(d)
-        expected = torch.empty(B, T, K, d, d)
-        for b in range(B):
-            for t in range(T):
-                for kk in range(K):
-                    Rt = eye.clone()
-                    for i in range(n_h):
-                        k_i = k[b, t, kk, i]
-                        if normalize_keys:
-                            k_i = k_i / k_i.norm()
-                        Rt = Rt @ (eye - beta[b, t, kk, i] * torch.outer(k_i, k_i))
-                    expected[b, t, kk] = Rt
-        torch.testing.assert_close(R, expected, atol=1e-5, rtol=1e-5)
-
-    def test_R_matches_manual_rank1_product(self):
-        self._check_R(normalize_keys=False)
-
-    def test_R_matches_manual_rank1_product_with_normalize_keys(self):
-        self._check_R(normalize_keys=True)
-
-    def test_beta_unconstrained_affine(self):
-        g = _group(d_model=6, d_state=3, n_h=2)
-        with torch.no_grad():
-            g.beta.weight.fill_(10.0)
-            g.beta.bias.zero_()
-        self.assertGreater(g.beta(torch.full((1, 1, 6), 10.0)).abs().max().item(), 2.0)
+        _, last = g(u, g.initial_state)
+        R = g.r(u).view(B, T, K, d, d)
+        s = g.s(u).view(B, T, K, d)
+        x = torch.zeros(B, K, d)
+        for t in range(T):
+            x = mm_apply_matrix(R[:, t], s[:, t], x)
+        torch.testing.assert_close(last, x.reshape(B, K * d), atol=1e-6, rtol=1e-6)
 
     def test_gradient_flow(self):
-        for normalize_keys in (False, True):
-            with self.subTest(normalize_keys=normalize_keys):
-                g = _group(n_h=2, normalize_keys=normalize_keys)
-                out, _ = g(torch.randn(2, 5, 8), g.initial_state)
-                out.sum().backward()
-                for name, p in [('k', g.k.weight), ('beta', g.beta.weight), ('o', g.o.weight)]:
-                    self.assertIsNotNone(p.grad, f"{name}.weight has no gradient")
-                    self.assertGreater(p.grad.abs().sum().item(), 0, f"{name}.weight gradient is zero")
+        g = _group(d_state=3, num_neurons=2)
+        out, _ = g(torch.randn(2, 5, 8), g.initial_state)
+        out.sum().backward()
+        for name, p in [('s', g.s.weight), ('r', g.r.weight), ('o', g.o.weight)]:
+            self.assertIsNotNone(p.grad, f"{name}.weight has no gradient")
+            self.assertGreater(p.grad.abs().sum().item(), 0, f"{name}.weight gradient is zero")
 
-    def test_config_passes_n_h_and_normalize_keys_through(self):
-        layer = _layer(10, neurons=[(3, 2, 2, True)])
-        g = layer.neuron_groups[0]
-        self.assertTrue(hasattr(g, 'k'))
-        self.assertEqual((g.cfg.n_h, g.cfg.normalize_keys), (2, True))
-        out, _ = layer(torch.randn(2, 5, 10), layer.initial_state)
-        self.assertEqual(out.shape, (2, 5, 10))
-
-    def test_rejects_negative_n_h(self):
-        with self.assertRaises(ValueError):
-            MinMaxRNCConfig(d_model=8, n_layers=1, neurons=[(3, 2, -1)])
-        with self.assertRaises(ValueError):
-            MinMaxNeuronGroupConfig(_num_blocks=1, d_model=8, d_state=3, n_h=-1)
+    def test_n_h_and_normalize_keys_are_gone(self):
+        with self.assertRaises(TypeError):
+            MinMaxNeuronGroupConfig(_num_blocks=1, d_model=8, d_state=3, n_h=2)
+        with self.assertRaises(TypeError):
+            MinMaxRNCConfig(d_model=8, n_layers=1, neurons=[(3, 2, 0)])     # old (d, K, n_h) triples
 
 
 # ---------------------------------------------------------------------------
@@ -465,9 +418,9 @@ class TestNeuronsConfig(unittest.TestCase):
 
     def test_tuple_list_and_group_inputs_normalise_identically(self):
         a = MinMaxRNCConfig(16, 1, 0, neurons=[(3, 2)])
-        b = MinMaxRNCConfig(16, 1, 0, neurons=[[3, 2, 0, False]])          # YAML-style lists
+        b = MinMaxRNCConfig(16, 1, 0, neurons=[[3, 2]])                    # YAML-style lists
         c = MinMaxRNCConfig(16, 1, 0, neurons=(NeuronGroup(3, 2),))
-        self.assertEqual(a.neurons, (NeuronGroup(3, 2, 0, False),))
+        self.assertEqual(a.neurons, (NeuronGroup(3, 2),))
         self.assertEqual(a, b)
         self.assertEqual(a, c)
 
@@ -478,7 +431,7 @@ class TestNeuronsConfig(unittest.TestCase):
         )
 
     def test_rejects_bad_entries(self):
-        for bad in ([(0, 2)], [(3, 0)], [(3, 2, -1)], [()], [(1, 2, 3, False, 'extra')], [3]):
+        for bad in ([(0, 2)], [(3, 0)], [(3, 2, 0)], [()], [3]):
             with self.subTest(entry=bad), self.assertRaises((ValueError, TypeError)):
                 MinMaxRNCConfig(16, 1, 4, neurons=bad)
 
@@ -495,10 +448,10 @@ class TestNeuronsConfig(unittest.TestCase):
     def test_any_state_dimension_is_valid_without_warnings(self):
         with warnings.catch_warnings():
             warnings.simplefilter('error')
-            MinMaxRNC(MinMaxRNCConfig(16, 1, 4, neurons=[(1, 3), (1, 2, 2), (2, 3), (4, 1, 2)]))
+            MinMaxRNC(MinMaxRNCConfig(16, 1, 4, neurons=[(1, 3), (2, 3), (4, 1)]))
 
     def test_same_d_state_in_several_groups_allowed(self):
-        model = MinMaxRNC(MinMaxRNCConfig(16, 1, 0, neurons=[(3, 2, 0), (3, 2, 2)]))
+        model = MinMaxRNC(MinMaxRNCConfig(16, 1, 0, neurons=[(3, 2), (3, 4)]))
         self.assertEqual(len(model.layers[0].neuron_groups), 2)
 
     def test_neuron_groups_and_sizes(self):
@@ -557,7 +510,7 @@ class TestLayersAndModels(unittest.TestCase):
         torch.testing.assert_close(out, expected, atol=1e-6, rtol=1e-6)
 
     def test_gradient_flow(self):
-        layer = _layer(8, d_state=3, neurons=[(2, 2), (3, 1, 2), (1, 4)])
+        layer = _layer(8, d_state=3, neurons=[(2, 2), (3, 1), (1, 4)])
         out, _ = layer(torch.randn(2, 6, 8), layer.initial_state)
         out.sum().backward()
         for name, p in layer.named_parameters():
@@ -565,7 +518,7 @@ class TestLayersAndModels(unittest.TestCase):
                 self.assertIsNotNone(p.grad, f"{name} has no gradient")
 
     def test_chunked_forward_matches_single_pass(self):
-        for d_state, groups in [(0, [(3, 2)]), (4, [(3, 2), (2, 1, 2), (1, 3)])]:
+        for d_state, groups in [(0, [(3, 2)]), (4, [(3, 2), (2, 1), (1, 3)])]:
             with self.subTest(d_state=d_state, groups=groups):
                 torch.manual_seed(0)
                 model = MinMaxRNC(MinMaxRNCConfig(12, 2, d_state, neurons=groups)).eval()
@@ -594,7 +547,7 @@ class TestLayersAndModels(unittest.TestCase):
 
     def test_state_dict_round_trip_and_names(self):
         torch.manual_seed(0)
-        cfg = MinMaxRNCConfig(12, 2, 4, neurons=[(3, 2), (2, 1, 2)])
+        cfg = MinMaxRNCConfig(12, 2, 4, neurons=[(3, 2), (2, 1)])
         a = MinMaxRNC(cfg).eval()
         torch.manual_seed(1)
         b = MinMaxRNC(cfg).eval()

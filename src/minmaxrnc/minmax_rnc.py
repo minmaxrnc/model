@@ -34,37 +34,31 @@ class NeuronGroup:
     Entries of MinMaxRNCConfig.neurons. Each layer gets one MinMaxNeuronGroup
     per entry. d_state = 1 gives scalar-state neurons (element-wise
     recurrence); d_state > 1 gives neurons whose state coordinates interact
-    through a d_state × d_state matrix R_t. See MinMaxNeuronGroupConfig for
-    `n_h` (experimental rank-1-product parametrisation of R_t) and
-    `normalize_keys`.
+    through a d_state × d_state matrix R_t (see MinMaxNeuronGroupConfig).
 
     MinMaxRNCConfig also accepts a plain tuple/list
-    (d_state[, num_neurons[, n_h[, normalize_keys]]]) in place of a
-    NeuronGroup, e.g. ``neurons=[(3, 16)]``.
+    (d_state[, num_neurons]) in place of a NeuronGroup, e.g.
+    ``neurons=[(3, 16)]``.
     """
 
-    d_state:        int
-    num_neurons:    int  = 1
-    n_h:            int  = 0
-    normalize_keys: bool = False
+    d_state:     int
+    num_neurons: int = 1
 
     def __post_init__(self):
         if self.d_state <= 0:
             raise ValueError(f"NeuronGroup.d_state must be > 0, got {self.d_state}")
         if self.num_neurons <= 0:
             raise ValueError(f"NeuronGroup.num_neurons must be > 0, got {self.num_neurons}")
-        if self.n_h < 0:
-            raise ValueError(f"NeuronGroup.n_h must be >= 0, got {self.n_h}")
 
     @classmethod
     def coerce(cls, value) -> 'NeuronGroup':
         if isinstance(value, cls):
             return value
-        if isinstance(value, (tuple, list)) and 1 <= len(value) <= 4:
+        if isinstance(value, (tuple, list)) and 1 <= len(value) <= 2:
             return cls(*value)
         raise TypeError(
             "Each neurons entry must be a NeuronGroup or a tuple/list "
-            f"(d_state[, num_neurons[, n_h[, normalize_keys]]]), got {value!r}"
+            f"(d_state[, num_neurons]), got {value!r}"
         )
 
     @property
@@ -103,7 +97,7 @@ class MinMaxRNCConfig:
     neurons : tuple[NeuronGroup | tuple, ...]
         New in 0.4.0, default () — none. Further groups of MinMax neurons in
         every layer, each entry a NeuronGroup or a tuple
-        (d_state[, num_neurons[, n_h[, normalize_keys]]]): num_neurons
+        (d_state[, num_neurons]): num_neurons
         neurons of state dimension d_state each. All neuron outputs of a
         layer are summed. Scalar-state groups (d_state=1) cost as much as
         `scalar_neurons`; for d_state > 1 the scan's work scales as
@@ -300,8 +294,6 @@ class MinMaxRNCConfig:
                 d_model              = self.d_model,
                 d_state              = g.d_state,
                 num_neurons          = g.num_neurons,
-                n_h                  = g.n_h,
-                normalize_keys       = g.normalize_keys,
                 dropout              = self.neuron_dropout,
                 train_init           = self.train_init,
                 output_gate          = self.output_gate,

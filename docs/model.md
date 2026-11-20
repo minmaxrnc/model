@@ -85,40 +85,17 @@ current input uₜ₊₁ ∈ Rᴵ:
 xₜ₊₁ = (Rₜ₊₁ ⊗ xₜ) ⊕ sₜ₊₁
 ```
 
-with `sₜ = Wₛ uₜ` (the lower bound — write / inject signal). Rₜ is built one of
-two ways, selected by `n_h`:
+where both parameters are affine projections of the input:
 
 ```
-n_h = 0 (default):  Rₜ = reshape(Wᵣ uₜ, (d, d))    (d² outputs, reshaped to a matrix)
-
-n_h > 0:            Rₜ = ∏_{i=1}^{n_h} (I - βᵢ(uₜ) kᵢ(uₜ) kᵢ(uₜ)ᵀ)
-                     kᵢ = reshape(Wₖ uₜ, (n_h, d)),  βᵢ = Wᵦ uₜ
+Rₜ = reshape(Wᵣ uₜ, (d, d))      (d² outputs, reshaped to a matrix)
+sₜ = Wₛ uₜ                       (the lower bound — write / inject signal)
 ```
 
-**Experimental.** The `n_h > 0` form is a product of rank-1 corrections to the identity, in the
-style of DeltaProduct's (Siems et al., NeurIPS 2025) state-transition matrix
-— but unlike DeltaProduct, βᵢ is a plain unconstrained affine function of uₜ
-(no sigmoid bounding into `[0, 2]`) and kᵢ is not unit-normalised, so each
-factor is a general rank-1 perturbation of the identity rather than strictly
-a Householder reflection. DeltaProduct needs bounded eigenvalues to keep its
-*linear* recurrence numerically stable over long sequences; the (max,min)
-recurrence here is idempotent — every entry of a composed Rₜ (or of xₜ
-itself) is *selected from*, never accumulated from, the individual per-step
-R/s values — so there is no analogous blow-up/vanishing-gradient mode to
-guard against, and no bounding is needed. Either way, `Rₜ` is an ordinary
-real d×d matrix once built, so it feeds into the recurrence/scan below
-identically; params scale as O(d²) for `n_h = 0` vs. O(n_h · d)
-for `n_h > 0` (typically far fewer once `n_h < d`).
-
-`kᵢ`'s norm is left unconstrained by default: it drifts with `uₜ` and is
-entangled with `βᵢ`, so both jointly determine each factor's magnitude,
-which can make it harder for the network to keep `Rₜ`'s entries in a useful
-range for the (max,min) comparisons. Setting `normalize_keys=True`
-L2-normalises each `kᵢ` along its `d` axis before forming `kᵢ kᵢᵀ`, as
-DeltaProduct does, so `βᵢ` alone controls the reflection's magnitude — at
-the cost of `k`'s norm no longer carrying information and of coupling
-gradients across all `d` entries of `kᵢ` (they jointly determine one shared
-norm). Only affects neuron groups with `n_h > 0`.
+Rₜ is unconstrained: every entry is an independent linear function of uₜ, and
+no bounding is needed for stability, since the recurrence only ever *selects*
+values — every entry of a composed Rₜ, and of xₜ itself, is one of the
+per-step values, never an accumulation of them.
 
 **Scalar-state neurons (d = 1).** With d = 1, Rₜ = rₜ is a scalar and the
 recurrence is the clamp above:
@@ -136,7 +113,7 @@ dedicated element-wise scan, so their cost per step is O(1) per neuron.
 Conversely, a d × d matrix whose off-diagonal entries are -∞ decouples the
 coordinates into d scalar-state neurons.
 
-**Cost.** Per neuron, parameters scale as O(d²) (O(n_h · d) for `n_h > 0`) and
+**Cost.** Per neuron, parameters scale as O(d²) and
 each composition step of the scan as O(d³). A neuron with state dimension d
 can realise permutation semiautomata of degree d, so d should be as large as
 the task needs but typically small; layers scale by having more neurons
@@ -211,8 +188,7 @@ Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of
 `MinMaxNeuronConfig.d_state` scalar-state neurons, which is how the layer
 holds the `scalar_neurons` shorthand.
 
-Learnable parameters: Wₛ, Wᵣ (or Wₖ, Wᵦ when `n_h > 0`), Wₒ (and optionally
-Wᵍ, x₀).
+Learnable parameters: Wₛ, Wᵣ, Wₒ (and optionally Wᵍ, x₀).
 
 ### MinMax Layer
 
@@ -294,7 +270,7 @@ All architecture hyperparameters are specified through a single flat
 | `prelayers_dropout` | float | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | bool | `False` | Add an FFN after all layers |
 | `scalar_neurons` | int | `0` | *0.4.0.* Number of scalar-state neurons per layer (shorthand for the group `NeuronGroup(1, scalar_neurons)`). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
-| `neurons` | tuple | `()` | *0.4.0.* Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or equivalent tuples/lists |
+| `neurons` | tuple | `()` | *0.4.0.* Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1)` or equivalent tuples/lists |
 | `scan_dtype` | str | `'ambient'` | *0.4.0.* Scan precision: `'ambient'` (no casting, 0.3.0 behaviour), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](#numerical-precision) |
 | `amp_dtype` | str \| None | `None` | *0.4.0.* Model-level autocast: `None` (caller decides, 0.3.0 behaviour), `'bf16'`, `'fp16'` |
 
@@ -376,8 +352,8 @@ Both functions initialise by sampling p ~ N(0, σ²); the table gives σ.
 | `wang_init_(p, dim, N)` | 2 / (N·√dim) | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
 
 `small_init_` is applied to all **input-side** projections: token embedding,
-LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ
-(or Wₖ, Wᵦ), and output-gate Wᵍ projections.  It keeps activations small at initialisation
+LM head (when untied), BasicConv, FFN up-projection, and the neuron Wₛ, Wᵣ,
+and output-gate Wᵍ projections.  It keeps activations small at initialisation
 in deep networks.
 
 `wang_init_` is applied to the two **residual output** projections: the
@@ -388,10 +364,8 @@ scaled-init strategy.
 
 ### s and r Projection Initialisation
 
-The `s_r_init` config field selects the initialisation scheme for the Wₛ projection and the
-projections Rₜ is built from (Wᵣ, or Wₖ and Wᵦ when `n_h > 0`, which follow the Wᵣ column). For
-`n_h > 0`, Wᵦ is additionally scaled by 1/√n_h, so that Rₜ's initial deviation from the identity
-does not grow with the number of factors.
+The `s_r_init` config field selects the initialisation scheme for the Wₛ and Wᵣ projections
+(Wᵣ produces Rₜ: one entry per neuron for scalar-state neurons, d² per neuron otherwise).
 
 | Scheme | Wₛ weights | Wᵣ weights | bₛ | bᵣ |
 |---|---|---|---|---|

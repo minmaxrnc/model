@@ -24,15 +24,14 @@ from minmaxrnc.minmax_rnc_lm import MinMaxRNC_LM, MinMaxRNCLMConfig
 
 DT = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}
 
-# (name, kwargs) — the d_state shorthand, explicit scalar-state groups (n_h=0
-# and n_h>0), groups with d > 1 (n_h=0 and n_h>0), and a mix of all.
+# (name, kwargs) — the legacy d_state shorthand, scalar_neurons, an explicit
+# scalar-state group, a group with d > 1, and a mix of all.
 ARCHS = [
     ('d_state',        dict(d_state=6)),
-    ('scalar',         dict(d_state=0, neurons=[(1, 6)])),
-    ('scalar_lowrank', dict(d_state=0, neurons=[(1, 6, 2)])),
-    ('matrix',         dict(d_state=0, neurons=[(3, 2)])),
-    ('lowrank',        dict(d_state=0, neurons=[(3, 2, 2)])),
-    ('mixed',          dict(d_state=4, neurons=[(3, 2), (2, 1, 2), (1, 3)])),
+    ('scalar_neurons', dict(scalar_neurons=6)),
+    ('scalar',         dict(neurons=[(1, 6)])),
+    ('matrix',         dict(neurons=[(3, 2)])),
+    ('mixed',          dict(scalar_neurons=4, neurons=[(3, 2), (2, 1), (1, 3)])),
 ]
 
 
@@ -136,16 +135,6 @@ class TestScanDtype(unittest.TestCase):
                             self.assertFalse(ac, "autocast must be disabled inside a pinned scan")
                         for s in _flat_states(state):
                             self.assertEqual(s.dtype, DT[scan_dtype], "carried state stays pinned")
-
-    def test_pinned_rank1_products_run_at_pinned_dtype(self):
-        """With n_h > 0 the R_t construction (eye, matmuls) runs inside the
-        pinned region, so R_t has the pinned dtype for every n_h (d > 1)."""
-        for n_h in (1, 2, 3):
-            with self.subTest(n_h=n_h):
-                model = _model('fp32', arch=dict(d_state=0, neurons=[(3, 2, n_h)]))
-                _, _, calls = self._run(model, outer='bf16')
-                for _, dtypes, _ in calls:
-                    self.assertEqual(dtypes[0], torch.float32)   # R
 
     def test_ambient_and_fp32_identical_without_autocast(self):
         u = torch.randn(2, 9, 12)

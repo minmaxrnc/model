@@ -29,7 +29,6 @@ import contextlib
 import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Literal, Optional
 from .modules.initialisers import wang_init_, small_init_init_
@@ -48,8 +47,7 @@ Precision the MinMax scan runs in.
     torch.autocast this means the s/r projections arrive in the autocast dtype
     while x_0 (an nn.Parameter) stays fp32, so the prefix composition runs in
     the autocast dtype and the final application is promoted to fp32.
-'fp32' | 'bf16' | 'fp16' — *pinned*: every scan input (and the construction of
-    R_t) is cast to this dtype and the scan runs with autocast disabled, so its
+'fp32' | 'bf16' | 'fp16' — *pinned*: every scan input is cast to this dtype and the scan runs with autocast disabled, so its
     precision is exactly the requested one regardless of any ambient autocast.
     The scan's outputs are cast back to the ambient compute dtype for the
     output projections; the carried recurrent state stays in the pinned dtype.
@@ -109,32 +107,15 @@ class MinMaxNeuronGroupConfig:
     d_state : int
         State dimension d of *each* neuron. 1 gives scalar-state neurons
         (element-wise recurrence); d > 1 gives neurons whose state
-        coordinates interact through a d × d matrix R_t. Parameters scale as
-        d_model · num_neurons · d² (for n_h = 0) and the parallel scan's work
-        as O(num_neurons · T log T · d³), so for d > 1 keep d small and scale
-        with num_neurons instead.
+        coordinates interact through a d × d matrix R_t, an unconstrained
+        affine projection of the input (every entry of R_t is an independent
+        linear function of u_t). Parameters scale as d_model · num_neurons · d²
+        and the parallel scan's work as O(num_neurons · T log T · d³), so for
+        d > 1 keep d small and scale with num_neurons instead.
     num_neurons : int
         Number K of independent neurons in the group. They are evaluated as
         one batched scan and their outputs summed — identical to K separate
         groups of one neuron each, summed; only the compute is batched.
-    n_h : int
-        Parametrisation of R_t.
-        0 (default) — an unconstrained affine projection of u_t: every entry
-        of R_t is an independent linear function of u_t.
-        > 0 — EXPERIMENTAL. A product of n_h rank-1 corrections to the
-        identity, in the style of DeltaProduct (Siems et al., NeurIPS 2025):
-
-            R_t = ∏_{i=1}^{n_h} (I - β_i(u_t) · k_i(u_t) k_i(u_t)^T)
-
-        with β_i an unconstrained affine function of u_t and k_i not
-        normalised (unless normalize_keys): unlike DeltaProduct's linear
-        recurrence, the (max,min) recurrence only ever *selects* values, so
-        it needs no eigenvalue bounding for stability. Parameters scale as
-        d_model · num_neurons · n_h · d. No positive experimental results yet.
-    normalize_keys : bool
-        Only meaningful when n_h > 0: L2-normalise each k_i before forming
-        k_i k_i^T, as in DeltaProduct, so β_i alone sets each factor's
-        magnitude.
     dropout : float
         Dropout probability applied to the input u before projection.
     train_init : bool
@@ -144,14 +125,14 @@ class MinMaxNeuronGroupConfig:
         If True, the output is element-wise multiplied by a sigmoid-gated
         projection of the input before the final linear: y = W_o(x ⊙ σ(W_g u)).
     s_r_init : 'small_init' | 'kaiming' | 'asymmetric'
-        Initialisation scheme for the s and R_t (r, or k/β) input projections.
+        Initialisation scheme for the s and r (R_t) input projections.
         'small_init' (default) — normal with std = sqrt(2/(5·d_model)),
         keeping early activations small in deep networks.
         'kaiming' — PyTorch default Kaiming uniform (fan_in=d_model), which
         gives a larger initial scale and more aggressive early state transitions.
-        'asymmetric' — treats s and R_t differently: s gets Kaiming weights
+        'asymmetric' — treats s and r differently: s gets Kaiming weights
         plus a positive bias (+1.0) so it fires immediately from x_0=0 and
-        encodes token identity with sufficient variance; R_t's projections get
+        encodes token identity with sufficient variance; r gets
         small_init weights and zero bias so they stay near zero early on and
         do not clip x back toward the dead zone.
     scan_dtype : 'ambient' | 'fp32' | 'bf16' | 'fp16'
@@ -171,8 +152,6 @@ class MinMaxNeuronGroupConfig:
     d_model:              int
     d_state:              int
     num_neurons:          int           = 1
-    n_h:                  int           = 0
-    normalize_keys:       bool          = False
     dropout:              float         = 0.0
     train_init:           bool          = False
     output_gate:          bool          = True
@@ -186,8 +165,6 @@ class MinMaxNeuronGroupConfig:
             raise ValueError(f"d_state must be > 0, got {self.d_state}")
         if self.num_neurons <= 0:
             raise ValueError(f"num_neurons must be > 0, got {self.num_neurons}")
-        if self.n_h < 0:
-            raise ValueError(f"n_h must be >= 0, got {self.n_h}")
 
 
 class MinMaxNeuronGroup(nn.Module):
@@ -199,7 +176,8 @@ class MinMaxNeuronGroup(nn.Module):
 
         x_{t+1}^(k) = max(R_t^(k) ⊗ x_t^(k), s_t^(k))
 
-    where ⊗ is the (max,min)-semiring matrix-vector product. For d = 1 this is
+    where ⊗ is the (max,min)-semiring matrix-vector product and R_t^(k) is an
+    unconstrained affine projection of the input u_t. For d = 1 this is
     the element-wise x_{t+1} = max(min(r_t, x_t), s_t).
 
     State layout: the group's state is the flat vector of its K·d state
@@ -226,7 +204,7 @@ class MinMaxNeuronGroup(nn.Module):
     projections.
 
     Attributes: I = d_model, d = d_state, K = num_neurons, D = K·d (number of
-    state coordinates), n_h.
+    state coordinates).
     """
 
     def __init__(self, cfg: MinMaxNeuronGroupConfig):
@@ -240,25 +218,20 @@ class MinMaxNeuronGroup(nn.Module):
     def _build(self):
         cfg = self.group_cfg
 
-        self.I   = I   = cfg.d_model
-        self.d   = d   = cfg.d_state
-        self.K   = K   = cfg.num_neurons
-        self.n_h = n_h = cfg.n_h
-        self.D   = D   = K * d
+        self.I = I = cfg.d_model
+        self.d = d = cfg.d_state
+        self.K = K = cfg.num_neurons
+        self.D = D = K * d
 
         # Construction order (and hence RNG consumption and state_dict key
-        # order): _initial_state, s, r | k+beta, o, o_g — for d = 1 exactly
-        # as 0.3.0's MinMax Neuron.
+        # order): _initial_state, s, r, o, o_g — for d = 1 exactly as 0.3.0's
+        # MinMax Neuron (r then has K·1·1 = D outputs).
         self._initial_state = nn.Parameter(torch.zeros(D), requires_grad=cfg.train_init)
 
         self.drop = nn.Dropout(cfg.dropout)
 
         self.s = nn.Linear(I, D)
-        if n_h > 0:
-            self.k    = nn.Linear(I, K * n_h * d)
-            self.beta = nn.Linear(I, K * n_h)
-        else:
-            self.r = nn.Linear(I, K * d * d)
+        self.r = nn.Linear(I, K * d * d)
         self.o = nn.Linear(D, I)
         if cfg.output_gate:
             self.o_g = nn.Linear(I, D)
@@ -268,51 +241,36 @@ class MinMaxNeuronGroup(nn.Module):
 
     def reset(self):
         cfg = self.group_cfg
-        # Init 's' and R_t's projections ('r', or 'k'/'beta' when n_h > 0) —
-        # fan-in is always self.I; these init functions sample each element
-        # i.i.d. from a distribution that depends only on the passed `dim`,
-        # so applying them to the stacked K-neuron tensors is statistically
-        # identical to applying them per neuron. The order of RNG-consuming
-        # calls (s.weight, then R_t's weights) is that of 0.3.0's neuron;
-        # zero/constant fills consume no RNG.
-        if self.n_h > 0:
-            r_params = [self.k.weight, self.beta.weight]
-            r_biases = [self.k.bias, self.beta.bias]
-        else:
-            r_params = [self.r.weight]
-            r_biases = [self.r.bias]
-
+        # Init 's' and 'r' — fan-in is always self.I; these init functions
+        # sample each element i.i.d. from a distribution that depends only on
+        # the passed `dim`, so applying them to the stacked K-neuron tensors is
+        # statistically identical to applying them per neuron. Same calls in
+        # the same order as 0.3.0's neuron.
         if cfg.s_r_init == 'kaiming':
             nn.init.kaiming_uniform_(self.s.weight, a=math.sqrt(5))
-            for w in r_params:
-                nn.init.kaiming_uniform_(w, a=math.sqrt(5))
+            nn.init.kaiming_uniform_(self.r.weight, a=math.sqrt(5))
             if self.s.bias is not None:
                 nn.init.zeros_(self.s.bias)
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
         elif cfg.s_r_init == 'asymmetric':
             # s: Kaiming weights + positive bias so s fires from x_0=0 in most
             # dimensions, eliminating the r>0>s dead zone.
-            # R_t: small_init weights + zero bias so it stays near zero and
-            # does not clip x back toward 0 while s is learning to write.
+            # r: small_init weights + zero bias so r stays near zero and does
+            # not clip x back toward 0 while s is learning to write.
             nn.init.kaiming_uniform_(self.s.weight, a=math.sqrt(5))
-            for w in r_params:
-                small_init_init_(w, dim=self.I)
+            small_init_init_(self.r.weight, dim=self.I)
             if self.s.bias is not None:
                 nn.init.constant_(self.s.bias, 1.0)
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
         else:
             small_init_init_(self.s.weight, dim=self.I)
-            for w in r_params:
-                small_init_init_(w, dim=self.I)
+            small_init_init_(self.r.weight, dim=self.I)
             if self.s.bias is not None:
                 nn.init.zeros_(self.s.bias)
-        for b in r_biases:
-            if b is not None:
-                nn.init.zeros_(b)
-        if self.n_h > 0:
-            # R_t = prod_i (I - beta_i k_i k_i^T) = I + sum_i E_i + O(E^2) to
-            # first order, with E_i = -beta_i k_i k_i^T independent across i.
-            # Scaling beta's std by 1/sqrt(n_h) keeps Var(sum_i E_i), i.e.
-            # R_t's initial deviation from the identity, independent of n_h.
-            self.beta.weight.data.div_(math.sqrt(self.n_h))
+            if self.r.bias is not None:
+                nn.init.zeros_(self.r.bias)
         # Init 'o' — dim = number of state coordinates summed at the layer
         # (default: this group's own D), so wang_init_'s residual-stream
         # scaling holds for any state size and any split across groups.
@@ -334,69 +292,19 @@ class MinMaxNeuronGroup(nn.Module):
 
 
     # ------------------------------------------------------------------
-    # R_t
-    # ------------------------------------------------------------------
-
-    def _project_transition(self, u: torch.Tensor):
-        """The input projections R_t is built from (Linear ops, ambient dtype)."""
-        if self.n_h > 0:
-            return (self.k(u), self.beta(u))
-        return (self.r(u),)
-
-
-    def _build_R(self, projections, B: int, T: int) -> torch.Tensor:
-        """
-        R_t for every (batch, time, neuron): (B, T, K, d, d), in the dtype of
-        the projections.
-
-        n_h = 0: the reshaped r-projection.
-        n_h > 0: prod_{i=1}^{n_h} (I - beta_i k_i k_i^T) — see
-                 MinMaxNeuronGroupConfig.n_h / .normalize_keys.
-        """
-        d, K, n_h = self.d, self.K, self.n_h
-        if n_h == 0:
-            return projections[0].view(B, T, K, d, d)
-
-        k    = projections[0].view(B, T, K, n_h, d)                # (B,T,K,n_h,d)
-        beta = projections[1].view(B, T, K, n_h)                   # (B,T,K,n_h)
-        eye  = torch.eye(d, device=k.device, dtype=k.dtype)
-
-        R = None
-        for i in range(n_h):
-            k_i = k[..., i, :]                                       # (B,T,K,d)
-            if self.group_cfg.normalize_keys:
-                k_i = F.normalize(k_i, dim=-1)
-            beta_i = beta[..., i]                                    # (B,T,K)
-            kkt    = k_i.unsqueeze(-1) * k_i.unsqueeze(-2)           # (B,T,K,d,d)
-            factor = eye - beta_i.unsqueeze(-1).unsqueeze(-1) * kkt  # (B,T,K,d,d)
-            R = factor if R is None else R @ factor
-        return R
-
-
-    def _compute_R_low_rank(self, u: torch.Tensor, B: int, T: int) -> torch.Tensor:
-        """R_t for n_h > 0, from an already dropout-applied u: (B, T, K, d, d)."""
-        return self._build_R(self._project_transition(u), B, T)
-
-
-    # ------------------------------------------------------------------
     # Scans
     # ------------------------------------------------------------------
 
-    def _scan_scalar(self, s, projections, x0, B: int, T: int) -> torch.Tensor:
+    def _scan_scalar(self, s, r, x0, B: int, T: int) -> torch.Tensor:
         """d = 1: element-wise scan over the (B, T, K) projections."""
-        if self.n_h == 0:
-            r = projections[0]                                       # (B,T,K)
-        else:
-            r = self._build_R(projections, B, T).reshape(B, T, self.K)
         return minmax_scan.all_states(r, s, x0)[:, 1:, :]            # (B,T,K)
 
 
-    def _scan_matrix(self, s, projections, x0, B: int, T: int) -> torch.Tensor:
+    def _scan_matrix(self, s, r, x0, B: int, T: int) -> torch.Tensor:
         """d > 1: matrix scan, with the neuron axis folded into the batch."""
         d, K = self.d, self.K
-        R = self._build_R(projections, B, T)                         # (B,T,K,d,d)
         s_flat  = s.view(B, T, K, d).permute(0, 2, 1, 3).reshape(B * K, T, d)
-        R_flat  = R.permute(0, 2, 1, 3, 4).reshape(B * K, T, d, d)
+        R_flat  = r.view(B, T, K, d, d).permute(0, 2, 1, 3, 4).reshape(B * K, T, d, d)
         x0_flat = x0.reshape(B * K, d)
 
         x_post = minmax_scan.all_states_matrix(R_flat, s_flat, x0_flat)[:, 1:, :]   # (B*K,T,d)
@@ -424,21 +332,17 @@ class MinMaxNeuronGroup(nn.Module):
 
         u = self.drop(u)                      # (B,T,I)
         s = self.s(u)                         # (B,T,D)
-        projections = self._project_transition(u)
+        r = self.r(u)                         # (B,T,K·d·d)
 
         compute_dtype = s.dtype
         region, scan_dtype = _scan_region(self.group_cfg.scan_dtype, u.device)
         with region:
             if scan_dtype is not None:
-                s  = s.to(scan_dtype)
-                x0 = x0.to(scan_dtype)
-                projections = tuple(p.to(scan_dtype) for p in projections)
-            # R_t is built inside the region so that, when pinned, its
-            # construction also runs at the pinned precision.
+                r, s, x0 = r.to(scan_dtype), s.to(scan_dtype), x0.to(scan_dtype)
             if self.d == 1:
-                x_post = self._scan_scalar(s, projections, x0, B, T)
+                x_post = self._scan_scalar(s, r, x0, B, T)
             else:
-                x_post = self._scan_matrix(s, projections, x0, B, T)
+                x_post = self._scan_matrix(s, r, x0, B, T)
 
         # ----- Compute outputs -----
         x_latest = x_post[:, -1, :]           # (B,D) — carried state (scan dtype if pinned)

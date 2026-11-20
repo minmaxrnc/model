@@ -13,8 +13,9 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   dimension d updates x_t ∈ R^d by `x_{t+1} = max(R_t ⊗ x_t, s_t)` in the
   (max,min) semiring; d = 1 is the scalar-state neuron of 0.3.0.
   `MinMaxRNCConfig.neurons` adds groups of such neurons to every layer, each
-  a `NeuronGroup(d_state, num_neurons=1, n_h=0, normalize_keys=False)` or an
-  equivalent tuple/list. `MinMaxRNCConfig.scalar_neurons = N` is shorthand
+  a `NeuronGroup(d_state, num_neurons=1)` or an equivalent tuple/list.
+  R_t is an unconstrained affine projection of the input (d² entries per
+  neuron). `MinMaxRNCConfig.scalar_neurons = N` is shorthand
   for the group `NeuronGroup(1, N)`: N scalar-state neurons.
   - New module `MinMaxNeuronGroup` / `MinMaxNeuronGroupConfig`, the single
     implementation for all state dimensions. Each group runs as one batched
@@ -24,8 +25,6 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
     `minmax_operator.compose_matrix`,
     `minmax_scan.all_composition_prefixes_matrix`,
     `minmax_scan.all_states_matrix`.
-  - `n_h > 0` (R_t as a product of rank-1 corrections to the identity,
-    DeltaProduct-style) is **experimental**.
 - **Scan precision.** `MinMaxRNCConfig.scan_dtype`: `'ambient'` (default,
   0.3.0 behaviour), or `'fp32'`, `'bf16'`, `'fp16'` to pin the scan's
   precision regardless of any autocast. With a pinned dtype the recurrent
