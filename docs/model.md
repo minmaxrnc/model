@@ -139,12 +139,12 @@ We can see it has two regimes:
 
 ### Composition Closure
 
-The composition of two MinMax maps is again a MinMax map, because $`\otimes`$ is associative and
-distributes over $`\oplus`$:
+The composition of two MinMax Recurrence maps is again a MinMax Recurrence map, 
+because $`\otimes`$ is associative and distributes over $`\oplus`$:
 
 ```math
 \begin{aligned}
-f_2(f_1(x)) = (R \otimes x) \oplus s, 
+f_2\bigl(f_1(x)\bigr) = (R \otimes x) \oplus s
 \qquad \text{where} \qquad
 R = R_2 \otimes R_1,
 \quad
