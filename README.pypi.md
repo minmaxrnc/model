@@ -52,9 +52,8 @@ residual connections:
 
 1. **Convolution** — one-step causal mixing.
 2. **Feed-forward network** — feature mixing (gated or standard MLP).
-3. **MinMax neurons** — the recurrent cells. A MinMax neuron with state dimension <em>d</em> updates
-   its state <em>x</em><sub><em>t</em></sub> ∈ ℝ<sup><em>d</em></sup> by the MinMax recurrence
-   <em>x</em><sub><em>t</em>+1</sub> = (<em>R</em><sub><em>t</em>+1</sub> ⊗ <em>x</em><sub><em>t</em></sub>) ⊕ <em>s</em><sub><em>t</em>+1</sub>
+3. **MinMax neurons** — the recurrent cells. A MinMax neuron updates its state <em>x</em><sub><em>t</em></sub> ∈ ℝ<sup><em>d</em></sup> by
+   the MinMax recurrence <em>x</em><sub><em>t</em>+1</sub> = (<em>R</em><sub><em>t</em>+1</sub> ⊗ <em>x</em><sub><em>t</em></sub>) ⊕ <em>s</em><sub><em>t</em>+1</sub>
    where the matrix <em>R</em><sub><em>t</em>+1</sub> ∈ ℝ<sup><em>d</em> × <em>d</em></sup> and the vector
    <em>s</em><sub><em>t</em>+1</sub> ∈ ℝ<sup><em>d</em></sup> are computed from the input to the neuron.
    MinMax recurrence is obtained from ordinary affine recurrence by replacing sum and product
