@@ -1,9 +1,9 @@
 <!-- Generated from README.md by scripts/build_pypi_readme.py; do not edit. -->
-# MinMax Recurrent Neural Cascades
+# MinMax Recurrent Neural Cascades — Truly for long-sequence processing
 
 A parallelisable recurrent sequence model built on the **MinMax operator** — 
 expressively powerful, efficiently implementable, and provably not affected by
-vanishing or exploding gradient.
+vanishing or exploding gradients.
 
 Resources:
 - [Project website](https://minmaxrnc.org/) for an overview, results, and news.
