@@ -66,7 +66,7 @@ residual connections:
    that replace scalar addition and multiplication with max and min, respectively,
    and extend the resulting operations to vectors and matrices in the usual way.
    With $`d = 1`$ the state is a scalar and the recurrence can be written as
-   $`x_{t+1} = \max(\min(r_{t+1}, x_t), s_{t+1})`$;
+   $`x_{t+1} = \mathrm{max}(\mathrm{min}(r_{t+1}, x_t), s_{t+1})`$;
    with larger $`d`$ the state coordinates interact. 
    Each layer holds groups of neurons, of any state dimensions, evaluated with a parallel prefix
    scan, and sums their outputs 
@@ -155,7 +155,7 @@ model = MinMaxRNC(cfg)
 
 A MinMax neuron can have any state dimension $`d`$. Its state transition is a
 $`d \times d`$ matrix applied in the (max, min) semiring,
-$`(R \otimes x)_i = \max_j \min(R_{ij}, x_j)`$;
+$`(R \otimes x)_i = \mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j)`$;
 a neuron with state dimension $`d`$ can realise permutation semiautomata of
 degree $`d`$. Each layer holds one or
 more **neuron groups**, each made of `num_neurons` neurons with the same
