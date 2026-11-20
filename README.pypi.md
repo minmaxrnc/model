@@ -17,14 +17,14 @@ Resources:
   "which phase are we in?" over arbitrarily long sequences. 
   Models trained on short sequences have been evaluated without loss of accuracy on sequences of
   over a million tokens. 
-  (*Formal expressivity:* all star-free languages with scalar-state neurons, up to all regular
-  languages with neurons of larger state dimension)
+  *Formal expressivity:* all star-free languages with scalar-state neurons, up to all regular
+  languages with neurons of larger state dimension.
 - **Parallel, recurrent, or anything in between.** The same model can be evaluated in any of the
   following ways. 
   - In parallel over a whole sequence via parallel scan. 
-    (*Computational cost:* depth <em>O</em>(log(<em>T</em>)) and work <em>O</em>(<em>T</em>))
+    *Computational cost:* depth <em>O</em>(log(<em>T</em>)) and work <em>O</em>(<em>T</em>).
   - Step by step via a recurrence. 
-    (*Computational cost:* constant compute and memory per token) 
+    *Computational cost:* constant compute and memory per token. 
   - By interleaving parallel and recurrence evaluation: parallel scan over chunks of <em>k</em> steps, 
     with recurrence across chunks. 
     The value of <em>k</em> can be set with `unroll_steps`. 
@@ -32,7 +32,7 @@ Resources:
     All choices give identical results. 
     Typically one would train and prefill prompts in parallel, then generate token by token, and use
     an intermediate <em>k</em> to process sequences too long to scan in one go.
-    (*Computational cost:* depth <em>O</em>((<em>T</em>/<em>k</em>) · log(<em>k</em>)) and work <em>O</em>(<em>T</em> · log(<em>k</em>)))
+    *Computational cost:* depth <em>O</em>((<em>T</em>/<em>k</em>) · log(<em>k</em>)) and work <em>O</em>(<em>T</em> · log(<em>k</em>)).
 - **Stable by construction.** States, activations, and gradients stay bounded, independently of how
   long the input sequence is, because the recurrence produces states by simply *selecting* scalars
   from the previous state or current inputs (via min and max operations). 
