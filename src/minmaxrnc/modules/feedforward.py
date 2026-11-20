@@ -13,7 +13,7 @@ GatedFeedForward
     Gated variant: proj_up outputs a fused [gate | value] tensor; the gate
     branch passes through an activation, then gate * value (element-wise) is projected down.
 
-        output = W_down · (φ(gate) * value)       (φ = act_fn, · matrix product, * element-wise)
+        output = W_down · (φ(gate) * value) + b_down       (φ = act_fn, · matrix product, * element-wise)
 
     With φ = ReLU  → ReGLU
     With φ = GELU  → GeGLU

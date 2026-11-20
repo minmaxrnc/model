@@ -49,70 +49,55 @@ where both parameters are affine projections of the input:
 
 | Parameter | Dimension | Name | Definition |
 |---|---|---|---|
-| $`R_t`$ |$`d \times d`$ | Reset matrix | $`\mathtt{reshape}(W_r \cdot u_t, (d, d))`$ |
-| $`s_t`$ |$`d`$          | Set vector   | $`W_s \cdot u_t`$                           |
+| $`R_t`$ |$`d \times d`$ | Reset matrix | $`\mathtt{reshape}(W_r \cdot u_t + b_r, (d, d))`$ |
+| $`s_t`$ |$`d`$          | Set vector   | $`W_s \cdot u_t + b_s`$                           |
 
-*Note:* Each entry of $`R_t`$ and $`s_t`$ is given by a linear function of $`u_t`$ independently of
+with weights $`W_r \in ℝ^{d^2 \times m}`$, $`W_s \in ℝ^{d \times m}`$ and biases
+$`b_r \in ℝ^{d^2}`$, $`b_s \in ℝ^d`$, all learned.
+
+*Note:* Each entry of $`R_t`$ and $`s_t`$ is given by an affine function of $`u_t`$ independently of
 any other entry. There is no immediate reason to adopt parametrisations that impose constraints on
 the entries — in contrast to Linear RNNs where it is crucial to adopt parametrisations ensuring
 properties such as non-expansiveness.
 
-**Special case: Scalar-state neurons ($`d = 1`$).** States $`x_t`$ are scalar, and so are resets 
-$`R_t = r_t`$ and sets $`s_t`$. The recurrence admits the form
+**Special case: Scalar-state neurons ($`d = 1`$).** For a single neuron with $`d = 1`$, states
+$`x_t`$ are scalar, and so are resets $`R_t = r_t`$ and sets $`s_t`$. The recurrence admits the form
 
 ```math
-x_{t+1} = \mathrm{max}\bigl(\mathrm{min}(r_{t+1}, x_t), s_{t+1}\bigr)
+x_t = \mathrm{max}\bigl(\mathrm{min}(r_t, x_{t-1}), s_t\bigr)
 ```
 
 and the reset and set parameters can be more easily interpreted:
 
 | Parameter | Definition | Role |
 |---|---|---|
-| $`r_t`$ | $`W_r \cdot u_t`$ | upper bound — reset signal / forget gate |
-| $`s_t`$ | $`W_s \cdot u_t`$ | lower bound — set signal / write value |
+| $`r_t`$ | $`w_r \cdot u_t + b_r`$ | upper bound — reset signal / forget gate |
+| $`s_t`$ | $`w_s \cdot u_t + b_s`$ | lower bound — set signal / write value |
 
-This is the neuron of 0.3.0: `MinMaxRNCConfig.scalar_neurons = N` (or its legacy
-name `d_state`) gives every layer $`N`$ scalar-state neurons, i.e. a state
-$`x_t \in ℝ^N`$ updated element-wise. Scalar-state neurons are evaluated with a
-dedicated element-wise scan, so their cost per step is $`O(1)`$ per neuron.
-Conversely, a $`d \times d`$ matrix whose off-diagonal entries are $`-\infty`$
-decouples the coordinates into $`d`$ scalar-state neurons.
+where $`w_r, w_s \in ℝ^m`$ are the neuron's weight vectors and $`b_r, b_s \in ℝ`$ its biases.
 
-**Scalar-state neurons ($`d = 1`$).** For a single neuron with $`d = 1`$, the state
-$`x_t`$ and the parameters $`R_t = r_t`$ and $`s_t`$ are scalars, and the
-recurrence is the clamp above:
-
-    ```math
-    x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)
-    ```
-
-| Parameter | Definition | Role |
-|---|---|---|
-| $`r_t`$ | $`w_r \cdot u_t`$ | upper bound — reset signal / forget gate |
-| $`s_t`$ | $`w_s \cdot u_t`$ | lower bound — set signal / write value |
-
-where $`w_r, w_s \in ℝ^m`$ are the neuron's weight vectors.
-
-`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. Stacking
-their states and weights, the layer keeps $`x_t \in ℝ^N`$ with $`r_t = W_r \cdot u_t`$
-and $`s_t = W_s \cdot u_t`$ ($`W_r, W_s \in ℝ^{N \times I}`$), and the recurrence
-above holds element-wise, one coordinate per neuron. These $`N`$ neurons are
-what 0.3.0 called a single MinMax Neuron with `d_state = N`. They are evaluated
-with a dedicated element-wise scan, so the cost per step is $`O(1)`$ per neuron.
+`MinMaxRNCConfig.scalar_neurons = N` gives every layer $`N`$ such neurons. Stacking their states,
+weights and biases, the layer keeps $`x_t \in ℝ^N`$ with $`r_t = W_r \cdot u_t + b_r`$ and
+$`s_t = W_s \cdot u_t + b_s`$ ($`W_r, W_s \in ℝ^{N \times m}`$, $`b_r, b_s \in ℝ^N`$), and the
+recurrence above holds element-wise, one coordinate per neuron. These $`N`$ neurons are what 0.3.0
+called a single MinMax Neuron with `d_state = N`. They are evaluated with a dedicated element-wise
+scan, so the cost per step is $`O(1)`$ per neuron.
 
 **Cost.** Per neuron, parameters scale as $`O(d^2)`$ and each composition step
 of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
 permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
 needs but typically small; layers scale by having more neurons
-(`num_neurons`) and more neuron groups rather than larger $`d`$.
+(`num_neurons`) and more neuron groups rather than larger $`d`$. (Conversely, a neuron with state
+dimension $`d`$ whose $`R_t`$ has all off-diagonal entries equal to $`-\infty`$ behaves like $`d`$
+independent scalar-state neurons.)
 
 **Output.** Each neuron's state is projected back to the input space, and
 the outputs of all neurons in a layer are summed:
 
 | `output_gate` | Output |
 |---|---|
-| `False` | $`y_t = W_o \cdot x_t`$ |
-| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t))`$ |
+| `False` | $`y_t = W_o \cdot x_t + b_o`$ |
+| `True` (default) | $`y_t = W_o \cdot (x_t * \sigma(W_g \cdot u_t + b_g)) + b_o`$ |
 
 ### The MinMax Map
 
@@ -231,7 +216,8 @@ Neuron. `MinMaxNeuron` (the 0.3.0 class) is the group of
 `MinMaxNeuronConfig.d_state` scalar-state neurons, which is how the layer
 holds the `scalar_neurons` shorthand.
 
-Learnable parameters: $`W_s`$, $`W_r`$, $`W_o`$ (and optionally $`W_g`$, $`x_0`$).
+Learnable parameters: weights $`W_s`$, $`W_r`$, $`W_o`$ and biases $`b_s`$, $`b_r`$, $`b_o`$; with the output
+gate also $`W_g`$, $`b_g`$; with `train_init`, the initial state $`x_0`$.
 
 ### MinMax Layer
 
@@ -260,9 +246,9 @@ neuron integrates information over arbitrarily long ranges via the recurrence.
 
 ### Convolution Variants
 
-**BasicConv** (default) — a learned linear projection that concatenates $`[u_{t-1}, u_t]`$
-and maps back to $`ℝ^D`$, giving more expressive local mixing at the cost of 2× the
-parameters.
+**BasicConv** (default) — a learned affine projection of the concatenated previous and current
+token, $`\mathrm{out}_t = W_c \cdot [u_{t-1}; u_t] + b_c`$, mapping back to $`ℝ^D`$; more expressive
+local mixing at the cost of 2× the parameters.
 
 **GatedConv** — a learned per-feature scalar gate $`g \in ℝ^D`$ interpolates
 between the previous and current token:
@@ -330,7 +316,7 @@ construction is unchanged.
 | `backbone` | MinMaxRNCConfig | — | Backbone configuration |
 | `head_dropout` | float | `0.0` | Dropout before the LM head |
 | `tie_weights` | bool | `True` | Share embedding and LM-head weights |
-| `output_gate` | bool | `True` | Gate each neuron output by $`\sigma(W_g \cdot u)`$; overrides `backbone.output_gate` |
+| `output_gate` | bool | `True` | Gate each neuron output by $`\sigma(W_g \cdot u + b_g)`$; overrides `backbone.output_gate` |
 | `conv_type` | `'basic'` \| `'gated'` | `'basic'` | Short-range conv variant; overrides `backbone.conv_type` |
 | `ffn_dropout` | float | `0.1` | Dropout inside the FFN of every layer (except the first, which uses `backbone.prelayers_dropout`); overrides `backbone.ffn_dropout` |
 
@@ -427,8 +413,8 @@ The **asymmetric** scheme addresses an initialisation dead zone, seen most easil
 
 | Class | Formula | Paper |
 |---|---|---|
-| `FeedForward` | $`W_2 \cdot \phi(W_1 \cdot x)`$ | Vaswani et al., NeurIPS 2017 |
-| `GatedFeedForward` | $`W_2 \cdot (\phi(\mathrm{gate}) * \mathrm{value})`$, where $`[\mathrm{gate}; \mathrm{value}] = W_1 \cdot x`$ | Dauphin et al., ICML 2017; Shazeer 2020 |
+| `FeedForward` | $`W_2 \cdot \phi(W_1 \cdot x + b_1) + b_2`$ | Vaswani et al., NeurIPS 2017 |
+| `GatedFeedForward` | $`W_2 \cdot (\phi(\mathrm{gate}) * \mathrm{value}) + b_2`$, where $`[\mathrm{gate}; \mathrm{value}] = W_1 \cdot x + b_1`$ | Dauphin et al., ICML 2017; Shazeer 2020 |
 
 Here $`\phi`$ is the activation selected by `ffn_act_fn`, $`\cdot`$ matrix
 multiplication and $`*`$ the element-wise product. The gated variant is the default (`ffn_type='gated'`).  With `act_fn='relu'`
