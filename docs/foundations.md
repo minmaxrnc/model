@@ -121,7 +121,7 @@ parameterised by a matrix $`R \in ℝ^{d \times d}`$ and a vector $`s \in ℝ^d`
 
 ```math
 f(x) = (R \otimes x) \oplus s,
-\qquad\text{i.e.,, coordinate-wise,}\qquad
+\qquad\text{ i.e., coordinate-wise,}\qquad
 f(x)_i = \mathrm{max}\bigl(\mathrm{max}_j\, \mathrm{min}(R_{ij}, x_j),\ s_i\bigr).
 ```
 
@@ -190,7 +190,7 @@ all prefix compositions can be computed simultaneously in parallel with depth $`
 
 ## Parallel Computation via Prefix Scan
 
-Given $`x_0`$ and the per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
+Given an initial state $`x_0`$ and per-step MinMax Recurrence maps $`f_1, \ldots, f_T`$ 
 with each $`f_t`$ having parameters $`R_t, s_t`$, 
 all states $`x_1, \ldots, x_T`$ can be computed in parallel:
 
@@ -212,7 +212,7 @@ At inference time (token-by-token generation) the recurrence runs
 sequentially as a standard RNN with constant cost per step and a state of
 fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
 over chunks of $`k`$ steps and the recurrence across chunks — depth
-$`O((T/k) \cdot \log k)`$, work $`O(T \log k)`$.
+$`O\bigl((T/k) \cdot \log(k)\bigr)`$, work $`O\bigl(T \cdot \log(k)\bigr)`$.
 
 ## References
 
