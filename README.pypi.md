@@ -9,7 +9,8 @@ Resources:
 - [Project website](https://minmaxrnc.org/) for an overview, results, and news.
 - [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and 
   [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
-- [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
+- [Repository](https://github.com/minmaxrnc/model), including the [documentation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/model.md) on the
+  mathematical foundation, architecture, and configuration.
 
 ## Key properties
 
@@ -192,7 +193,7 @@ Things to know:
   training, but results vary across seeds; <em>S</em><sub>4</sub> is solved only on some seeds,
   and larger groups (<em>A</em><sub>5</sub>, <em>S</em><sub>5</sub>) have not been solved yet.
 
-See [`docs/model.md`](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/model.md#the-minmax-recurrence) for the maths.
+See the [mathematical foundation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md#minmax-recurrence) for the maths.
 
 ### Mixed precision
 

@@ -9,10 +9,12 @@ Resources:
 - [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and 
   [arXiv paper](https://arxiv.org/abs/2605.06384) for the formal description and analyses.
   <!-- github-only -->
-- Architecture reference in `docs/model.md`.
+- Documentation in [`docs/`](docs/model.md): [mathematical foundation](docs/foundations.md),
+  [architecture](docs/architecture.md), and [configuration and implementation](docs/configuration.md).
   <!-- /github-only -->
   <!-- pypi-only
-  - [Repository](https://github.com/minmaxrnc/model) including architecture reference in `docs/model.md`.
+  - [Repository](https://github.com/minmaxrnc/model), including the [documentation](docs/model.md) on the
+    mathematical foundation, architecture, and configuration.
   -->
 
 ## Key properties
@@ -196,7 +198,7 @@ Things to know:
   training, but results vary across seeds; $`S_4`$ is solved only on some seeds,
   and larger groups ($`A_5`$, $`S_5`$) have not been solved yet.
 
-See [`docs/model.md`](docs/model.md#the-minmax-recurrence) for the maths.
+See the [mathematical foundation](docs/foundations.md#minmax-recurrence) for the maths.
 
 ### Mixed precision
 
