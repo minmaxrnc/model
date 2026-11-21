@@ -41,7 +41,7 @@ with $`\oplus`$ in place of $`+`$ and $`\otimes`$ in place of $`\cdot`$:
 ## MinMax Recurrence
 
 A MinMax neuron of state dimension $`d`$ maintains a state $`x_t \in ℝ^d`$
-by computing it at each step from the previous state $`x_t \in ℝ^d`$ via a MinMax affine map 
+by computing it at each step from the previous state $`x_{t-1} \in ℝ^d`$ via a MinMax affine map 
 
 ```math
 x_t = (R_t \otimes x_{t-1}) \oplus s_t
@@ -95,7 +95,7 @@ b_\mathrm{s} \in ℝ.
 ```
 
 [`MinMaxRNCConfig.scalar_neurons = N`](../src/minmaxrnc/minmax_rnc.py) gives every layer $`N`$ of such neurons. 
-Stacking their states, weights and biases, the layer has states $`x^{(\ell)}_t \in ℝ^N`$ with 
+Stacking their states, weights and biases, layer $`\ell`$ (the superscript $`(\ell)`$ indexes the layer) has states $`x^{(\ell)}_t \in ℝ^N`$ with 
 
 ```math
 \begin{align*}
@@ -159,7 +159,7 @@ f(x) = \mathrm{max}(\mathrm{min}(r, x), s)
 **Regime 1.** 
 When $`r \ge s`$, 
 the map $`f`$ is an (ordinary) piecewise-affine map that is constant in two regions of the state
-space and it is identity in ther third region.
+space and it is identity in the third region.
 
 | State-space region | State update | Interpretation                     |
 |--------------------|--------------|------------------------------------|
@@ -168,7 +168,7 @@ space and it is identity in ther third region.
 | $`(r,\infty)`$     | $`f(x) = r`$ | constant — maps states to $`r`$    |
 
 The fact that $`f`$ is the identity function on the state-space region $`[s,r]`$ makes MinMax
-Neurons capable of mantaining information perfectly for any arbitrary number of steps.
+Neurons capable of maintaining information perfectly for any arbitrary number of steps.
 
 **Regime 2.** 
 When $`r < s`$, the map $`f`$ is the constant map $`f(x) = s`$ over the entire state space.

@@ -8,7 +8,7 @@ A MinMax neuron with state dimension d maintains a hidden state x_t ∈ R^d
 updated by the MinMax recurrence — the affine recurrence of the (max,min)
 semiring:
 
-    x_{t+1} = max(R_t ⊗ x_t, s_t),     (R ⊗ x)_i = max_j min(R_ij, x_j)
+    x_t = max(R_t ⊗ x_{t-1}, s_t),     (R ⊗ x)_i = max_j min(R_ij, x_j)
 
 with R_t ∈ R^{d×d} and s_t ∈ R^d computed from the input u_t.
 
@@ -16,13 +16,13 @@ MinMaxNeuronGroup implements a group of K such neurons with the same d, fed
 the same input and summed into one output. It is the only implementation;
 the state dimension d is just a parameter. For d = 1 (scalar-state neurons),
 R_t is a scalar and the recurrence is the element-wise
-x_{t+1} = max(min(r_t, x_t), s_t), which the group evaluates with the
+x_t = max(min(r_t, x_{t-1}), s_t), which the group evaluates with the
 element-wise scan — the computation is then exactly that of 0.3.0's MinMax
 Neuron. For d > 1 it uses the matrix scan. The choice depends only on d,
 which is fixed at construction.
 
 MinMaxNeuron / MinMaxNeuronConfig (the 0.3.0 API) remain: a MinMaxNeuron with
-d_state = D is the group of D scalar-state neurons.
+d_state = N is the group of N scalar-state neurons.
 """
 
 import contextlib
@@ -179,16 +179,16 @@ class MinMaxNeuronGroup(nn.Module):
     A group of K = num_neurons MinMax neurons with state dimension d = d_state
     each, all fed the same input and summed into a single output.
 
-    Each neuron k maintains x_t^(k) ∈ R^d, updated by
+    Each neuron i maintains x_t^(i) ∈ R^d, updated by
 
-        x_{t+1}^(k) = max(R_t^(k) ⊗ x_t^(k), s_t^(k))
+        x_t^(i) = max(R_t^(i) ⊗ x_{t-1}^(i), s_t^(i))
 
-    where ⊗ is the (max,min)-semiring matrix-vector product and R_t^(k), s_t^(k)
+    where ⊗ is the (max,min)-semiring matrix-vector product and R_t^(i), s_t^(i)
     are unconstrained affine projections of the input u_t (weights and biases). For d = 1 this is
-    the element-wise x_{t+1} = max(min(r_t, x_t), s_t).
+    the element-wise x_t = max(min(r_t, x_{t-1}), s_t).
 
     State layout: the group's state is the flat vector of its K·d state
-    coordinates (neuron-major: neuron k occupies coordinates k·d … k·d+d-1).
+    coordinates (neuron-major: neuron i occupies coordinates i·d … i·d+d-1).
     The initial state x_0 has shape (K·d,), the recurrent state (B, K·d), and
     the s / output projections act on K·d coordinates. For d = 1 every tensor
     and parameter has exactly the shape of 0.3.0's MinMax Neuron with
@@ -210,7 +210,7 @@ class MinMaxNeuronGroup(nn.Module):
     with x_t ∈ R^{K·d} the concatenated states — identical to summing per-neuron
     projections.
 
-    Attributes: I = d_model, d = d_state, K = num_neurons, D = K·d (number of
+    Attributes: I = d_model (the input dimension, m in the docs), d = d_state, K = num_neurons, D = K·d (number of
     state coordinates).
     """
 
@@ -410,9 +410,9 @@ class MinMaxNeuronConfig:
 class MinMaxNeuron(MinMaxNeuronGroup):
     """
     MinMax Neuron as in 0.3.0: a MinMaxNeuronGroup of `cfg.d_state`
-    scalar-state neurons, updating x_t ∈ R^D element-wise:
+    scalar-state neurons, updating x_t ∈ R^N (N = cfg.d_state) element-wise:
 
-        x_{t+1} = max(min(r_t, x_t), s_t)
+        x_t = max(min(r_t, x_{t-1}), s_t)
 
     Same parameters (s, r, o, o_g, _initial_state), shapes, initialisation and
     computation as in 0.3.0. `cfg` is the MinMaxNeuronConfig it was built

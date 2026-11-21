@@ -58,16 +58,16 @@ The other modules (`Embedding`, `ModuleList`, `LayerNorm`, `RMSNorm`, `Identity`
 ## MinMax Neuron Groups
 
 [`MinMaxNeuronGroup`](../src/minmaxrnc/minmax_neuron.py) provides $`K`$ = `num_neurons` neurons with the same state
-dimension $`d`$, fed the same input $`u_t`$. Each neuron $`k`$ has its own parameters
-$`R_t^{(k)} \in ℝ^{d \times d}`$ and $`s_t^{(k)} \in ℝ^d`$, and its own state
-$`x_t^{(k)} \in ℝ^d`$. The group computes them for all its neurons at once:
+dimension $`d`$, fed the same input $`u_t`$. Each neuron $`i`$ has its own parameters
+$`R_t^{(i)} \in ℝ^{d \times d}`$ and $`s_t^{(i)} \in ℝ^d`$, and its own state
+$`x_t^{(i)} \in ℝ^d`$. The group computes them for all its neurons at once:
 
 1. two linear layers project the input to the parameters of every neuron, at all positions at
    once: for an input of shape `(B, T, d_model)` (batch size $`B`$, sequence length $`T`$),
    `Linear(d_model, K·d²)` produces `r` of shape `(B, T, K·d²)`, and `Linear(d_model, K·d)`
    produces `s` of shape `(B, T, K·d)`. At each position $`t`$, the vector $`r_t`$ is split
-   into the $`K`$ matrices $`R_t^{(k)}`$, and the vector $`s_t`$ into the $`K`$ vectors
-   $`s_t^{(k)}`$;
+   into the $`K`$ matrices $`R_t^{(i)}`$, and the vector $`s_t`$ into the $`K`$ vectors
+   $`s_t^{(i)}`$;
 2. the states of all $`K`$ neurons are updated together, as one batched computation over the
    batch, the neurons and the positions: the parallel scan runs on matrices of shape
    `(B·K, T, d, d)`, with the neurons folded into the batch axis; in recurrent evaluation, all
@@ -152,7 +152,7 @@ maintain a state.
 ## Convolution Variants
 
 **[BasicConv](../src/minmaxrnc/modules/basic_conv.py)** (default) — a learned affine projection of the concatenated previous and current
-token, $`\mathrm{out}_t = W_c \cdot [u_{t-1}; u_t] + b_c`$, mapping back to $`ℝ^{d_\mathrm{model}}`$; more expressive
+token, $`\mathrm{out}_t = W_\mathrm{c} \cdot [u_{t-1}; u_t] + b_\mathrm{c}`$, mapping back to $`ℝ^{d_\mathrm{model}}`$; more expressive
 local mixing at the cost of 2× the parameters.
 
 **[GatedConv](../src/minmaxrnc/modules/gated_conv.py)** — a learned per-feature scalar gate $`g \in ℝ^{d_\mathrm{model}}`$ interpolates
@@ -184,42 +184,47 @@ are applied after the final layer.
 ## Language Model Wrapper
 
 `MinMaxRNC_LM` adds:
-- Token embedding with `small_init_` initialisation.
+- Token embedding with `small_init_init_` initialisation.
 - A dropout before the LM head.
 - An optional weight tie between the embedding and the LM head.
 
 ## Initialisation
 
-Both functions initialise by sampling $`p \sim \mathcal{N}(0, \sigma^2)`$; the table gives $`\sigma`$.
+Both functions initialise a parameter $`p`$ by sampling $`p \sim \mathcal{N}(0, \mathrm{std}^2)`$; the table gives $`\mathrm{std}`$.
+Here $`\mathrm{dim}`$ is the fan-in of the projection being initialised (the size of its input):
+$`d_\mathrm{model}`$ for most projections, $`2 \cdot d_\mathrm{model}`$ for BasicConv, and the FFN hidden
+size for the FFN down-projection; for the neuron output projection it is the layer's total number of
+state coordinates (the sum of $`K \cdot d`$ over the layer's neuron groups, i.e. the group's own
+$`K \cdot d`$ when the layer has a single group). $`L`$ = `num_blocks` is the number of residual blocks.
 
-| Function | $`\sigma`$ | Paper |
+| Function | $`\mathrm{std}`$ | Paper |
 |---|---|---|
 | `small_init_init_(p, dim)` | $`\sqrt{\dfrac{2}{5 \cdot \mathrm{dim}}}`$ | Nguyen & Salazar, IWSLT 2019 |
-| `wang_init_(p, dim, N)` | $`\dfrac{2}{N \cdot \sqrt{\mathrm{dim}}}`$ | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
+| `wang_init_(p, dim, num_blocks)` | $`\dfrac{2}{L \cdot \sqrt{\mathrm{dim}}}`$ | Radford et al. 2019 (GPT-2) + Nguyen & Salazar 2019; used in Beck et al. 2024 (xLSTM) |
 
-`small_init_` is applied to all **input-side** projections: token embedding,
-LM head (when untied), BasicConv, FFN up-projection, and the neuron $`W_s`$, $`W_r`$,
-and output-gate $`W_g`$ projections.  It keeps activations small at initialisation
+`small_init_init_` is applied to all **input-side** projections: token embedding,
+LM head (when untied), BasicConv, FFN up-projection, and the neuron $`W_\mathrm{s}`$, $`W_\mathrm{r}`$,
+and output-gate $`W_\mathrm{g}`$ projections.  It keeps activations small at initialisation
 in deep networks.
 
 `wang_init_` is applied to the two **residual output** projections: the
-neuron output $`W_o`$ and the FFN down-projection.  It additionally divides by N
-(number of residual blocks) so the total variance contributed by all residual
-branches to the stream stays O(1/N) regardless of depth — following the GPT-2
+neuron output $`W_\mathrm{o}`$ and the FFN down-projection.  It additionally divides by $`L`$
+(the number of residual blocks) so the total variance contributed by all residual
+branches to the stream stays $`O(1/L)`$ regardless of depth — following the GPT-2
 scaled-init strategy.
 
 ### s and r Projection Initialisation
 
-The `s_r_init` config field selects the initialisation scheme for the $`W_s`$ and $`W_r`$ projections
-($`W_r`$ produces $`R_t`$: one entry per neuron for scalar-state neurons, $`d^2`$ per neuron otherwise).
+The `s_r_init` config field selects the initialisation scheme for the $`W_\mathrm{s}`$ and $`W_\mathrm{r}`$ projections
+($`W_\mathrm{r}`$ produces $`R_t`$: one entry per neuron for scalar-state neurons, $`d^2`$ per neuron otherwise).
 
-| Scheme | $`W_s`$ weights | $`W_r`$ weights | $`b_s`$ | $`b_r`$ |
+| Scheme | $`W_\mathrm{s}`$ weights | $`W_\mathrm{r}`$ weights | $`b_\mathrm{s}`$ | $`b_\mathrm{r}`$ |
 |---|---|---|---|---|
-| `'small_init'` | `small_init_` | `small_init_` | 0 | 0 |
+| `'small_init'` | `small_init_init_` | `small_init_init_` | 0 | 0 |
 | `'kaiming'` | Kaiming uniform ($`a = \sqrt{5}`$) | Kaiming uniform ($`a = \sqrt{5}`$) | 0 | 0 |
-| `'asymmetric'` | Kaiming uniform ($`a = \sqrt{5}`$) | `small_init_` | +1.0 | 0 |
+| `'asymmetric'` | Kaiming uniform ($`a = \sqrt{5}`$) | `small_init_init_` | +1.0 | 0 |
 
-The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with $`x_0 = 0`$ and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting $`b_s = +1.0`$ ensures $`s > 0`$ at initialisation so writes happen from the first token; keeping $`W_r`$ small prevents r from immediately over-writing the written values.
+The **asymmetric** scheme addresses an initialisation dead zone, seen most easily in the scalar case: with $`x_0 = 0`$ and both projections near zero, `max(min(r, x), s)` keeps every hidden unit at 0 whenever s < 0 < r, preventing state writes early in training.  Setting $`b_\mathrm{s} = +1.0`$ ensures $`s > 0`$ at initialisation so writes happen from the first token; keeping $`W_\mathrm{r}`$ small prevents r from immediately over-writing the written values.
 
 ## References
 

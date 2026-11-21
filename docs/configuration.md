@@ -51,7 +51,7 @@ All architecture hyperparameters are specified through a single flat
 | `backbone` | [`MinMaxRNCConfig`](#minmaxrncconfig) | — | Backbone configuration |
 | `head_dropout` | `float` | `0.0` | Dropout before the LM head |
 | `tie_weights` | `bool` | `True` | Share embedding and LM-head weights |
-| `output_gate` | `bool` | `True` | Gate each neuron output by $`\sigma(W_g \cdot u + b_g)`$; always replaces `backbone.output_gate` |
+| `output_gate` | `bool` | `True` | Gate each neuron output by $`\sigma(W_\mathrm{g} \cdot u_t + b_\mathrm{g})`$; always replaces `backbone.output_gate` |
 | `conv_type` | `str` | `'basic'` | Short-range conv variant; always replaces `backbone.conv_type` |
 | `ffn_dropout` | `float` | `0.1` | Dropout inside the FFN of every layer (except the first, which uses `backbone.prelayers_dropout`); always replaces `backbone.ffn_dropout` |
 

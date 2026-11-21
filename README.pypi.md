@@ -6,30 +6,46 @@
 
 ---
 
-A parallelisable recurrent architecture truly for long-sequence processing — 
-expressively powerful, efficiently implementable, provably stable, 
-and not affected by vanishing gradients.
+A parallelisable sequence model based on a novel form of recurrence — 
+*truly for long-sequence processing.* 
 
-## Why MinMax RNCs
 
-- **Perfect memory over long contexts.** A MinMax neuron can hold a value for arbitrarily many steps
-  without corrupting it, so it can track states such as "has X happened yet?" or "which phase are
-  we in?" over arbitrarily long sequences.
-- **Memory that does not fade.** Models trained on short sequences have been evaluated without
-  loss of accuracy on sequences of over a million tokens.
-- **Expressively powerful.** Scalar-state neurons capture all star-free languages; neurons of larger
-  state dimension, up to all regular languages.
-- **Stable by construction.** States, activations, and gradients stay bounded, however long the
-  input sequence is, because the recurrence only *selects* values from the previous state or the
-  current inputs (via min and max operations).
-- **Long-range credit assignment.** Information from early tokens can reach the end of the sequence
-  unchanged, and so can the gradient back to them: no vanishing state gradients.
+## Key Properties
+
+
+- **High expressivity with *perfect memory*.** A MinMax neuron can store and keep information
+  for arbitrarily many steps without corrupting it, while being able to manipulate it in a rich way.
+
+- **Guaranteed stability.** States, activations, and gradients stay bounded no matter how long the
+  input sequence is, because MinMax recurrence operates by *selecting* values (in contrast with 
+  other forms of recurrence such as the ones employed in Linear RNNs, where changes in state values
+  can add up over time in an unbounded manner).
+
+- **Linear-cost parallelism.**
+  In addition to recurrence, MinMax RNCs admit *parallel scan* as an evaluation strategy, 
+  with the possibility of combining the two strategies.
+  
+  *Parallel training.* All states across a sequence of length <em>T</em> can be computed simultaneously
+    in depth <em>O</em>(log <em>T</em>) and work <em>O</em>(<em>T</em>) with no sequential bottleneck — or, to control memory
+    usage over long sequences, they can be computed in chunks of <em>k</em> steps using recurrence across
+    chunks.  
+
+  *Efficient inference.* Recurrence enables inference with per-token compute and memory
+    usage that is independent of the sequence/context length (fixed-size state, no growing cache), 
+    making MinMax RNCs practical for long-context streaming generation.
+
+- **Long-range credit assignment.** Gradients can backpropagate to earlier tokens without vanishing,
+  no matter how many steps back they are, and 
+  so MinMax RNCs can learn *arbitrarily-long range dependencies*. 
+
+## Measured Performance
+
 - **Parallel, recurrent, or anything in between.** Train in parallel over the whole sequence with a
   parallel scan (depth <em>O</em>(log <em>T</em>)); generate step by step with constant compute and memory per
   token; or scan chunks of <em>k</em> steps with recurrence across chunks (`unroll_steps = k`). All give
   identical results; see [Parallel computation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md#parallel-computation-via-prefix-scan)
   for the costs.
-- **Plain PyTorch.** No custom CUDA kernels; works with `torch.compile` and mixed precision.
+
 - **Ahead of state-of-the-art recurrent models on long sequences.** On synthetic benchmarks of
   long-horizon memory, sequential pattern matching and recall, trained on sequences of length up to
   512 and evaluated up to 1M, MinMax RNCs keep perfect accuracy, whereas Mamba, mLSTM, xLSTM,
@@ -37,6 +53,12 @@ and not affected by vanishing gradients.
   groups <em>S</em><sub>3</sub> and <em>S</em><sub>4</sub>, a single layer is perfectly accurate on sequences of length 1M.
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss (3.12) as GPT-2 of 124M parameters.
+
+- **Expressively powerful.** Scalar-state neurons capture all star-free languages; neurons of larger
+  state dimension, up to all regular languages.
+
+- **Memory that does not fade.** Models trained on short sequences have been evaluated without
+  loss of accuracy on sequences of over a million tokens.
 
 ## Installation
 

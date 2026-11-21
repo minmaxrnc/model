@@ -424,7 +424,7 @@ class MinMaxRNC(nn.Module):
         return torch.autocast(device_type=device_type, dtype=_AMP_TORCH_DTYPES[amp_dtype])
 
     def _parallel_forward(self, u: torch.Tensor, state):
-        """u: [B, T, D] — returns output [B, T, D] and updated state."""
+        """u: [B, T, d_model] — returns output [B, T, d_model] and updated state."""
         updated_state = []
         y = u
         for layer, layer_state in zip(self.layers, state):
