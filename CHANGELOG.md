@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The source distribution now includes the test fixtures, `scripts/` and `docs/` (via
+  `MANIFEST.in`), so its test suite runs as in the repository. The wheel is unchanged.
+
 ## 0.4.0
 
 Backward compatible with 0.3.0: with default settings, models have the same

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Alessandro Ronca
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+# Extra files for the source distribution (sdist), so that its test suite runs
+# as in the repository. The wheel is not affected.
+
+include NOTICE THIRD_PARTY_NOTICES.md COMMERCIAL-LICENSE.md CLA.md
+include CHANGELOG.md CONTRIBUTING.md
+recursive-include docs *.md
+recursive-include scripts *.py
+recursive-include tests *.py
+recursive-include tests/fixtures *.pt
+global-exclude __pycache__ *.py[cod]
