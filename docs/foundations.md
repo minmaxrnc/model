@@ -114,7 +114,7 @@ b^{(\ell)}_\mathrm{s} \in ℝ^N,
 ```
 
 and the recurrence above holds element-wise, one coordinate per neuron. 
-They are evaluated with a dedicated element-wise scan, so the cost per step is $`O(1)`$ per neuron.
+They are evaluated with a dedicated element-wise scan, so each composition costs $`O(1)`$ per neuron.
 
 
 ## MinMax Layer's Output
@@ -235,7 +235,7 @@ At inference time (token-by-token generation) the recurrence runs
 sequentially as a standard RNN with constant cost per step and a state of
 fixed size. Any mix is possible: `unroll_steps = k` runs the scan in parallel
 over chunks of $`k`$ steps and the recurrence across chunks — depth
-$`O\bigl((T/k) \cdot \log(k)\bigr)`$, work $`O\bigl(T \cdot \log(k)\bigr)`$.
+$`O\bigl((T/k) \cdot (1 + \log k)\bigr)`$, work $`O\bigl(T \cdot (1 + \log k)\bigr)`$.
 All choices give identical results. Typically one trains and prefills prompts in parallel,
 generates token by token, and uses an intermediate $`k`$ for sequences too long to scan in one go.
 

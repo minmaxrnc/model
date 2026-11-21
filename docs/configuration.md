@@ -147,8 +147,6 @@ seed, and on the batch size: with batch size 64, `s3` did not learn $`S_3`$ on a
 With 2 layers and state dimension 4 (`dataclasses.replace(s4, n_layers=2)`), $`S_3`$ was learned
 on 3 of 3 seeds with batch size 8.
 
-With batch size 8 and no gradient clipping, training sometimes collapsed to chance level after
-converging, so keep the best checkpoint rather than the last one.
 
 ### Language model at GPT-2 scale
 
