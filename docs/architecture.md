@@ -87,8 +87,16 @@ Keep $`d`$ small (≈ 2–8), and scale with `num_neurons` and more groups inste
 fails to compile groups with $`d > 1`$ in fp32 for inference (`torch.no_grad()` or
 `torch.inference_mode()`), with `InductorError: TypeError: Expected a number but got Mul`.
 Compiled training, bf16 AMP and models with scalar-state neurons only are unaffected.
-Workarounds: evaluate with the uncompiled model, compile with `backend="aot_eager"` (whose outputs
-are identical to eager), or run under bf16 AMP.
+Workaround: before compiling, set
+
+```python
+torch._inductor.config.triton.coalesce_tiling_analysis = False
+```
+
+which disables the Inductor analysis that fails; on an NVIDIA A100 this made every tested case
+compile, with no change in speed. This is a global PyTorch setting, so the library does not set it
+itself. Alternatives: evaluate with the uncompiled model, compile with `backend="aot_eager"`
+(whose outputs are identical to eager), or run under bf16 AMP.
 
 **Evidence so far.** On group state-tracking benchmarks, neurons with state dimension 3 learn the
 symmetric group $`S_3`$ (tracking the permutation of 3 elements) and generalise to much longer

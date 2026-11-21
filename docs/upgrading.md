@@ -69,5 +69,27 @@ Only for configs 0.3.0 rejected anyway: `d_state` now defaults to 0, so leaving 
 Rename config keys `diagonal_d_state → scalar_neurons` and `d_states → neurons`, turning each
 `(d_state, num_neurons, n_h)` triple into a `(d_state, num_neurons)` pair. Only `n_h = 0` is
 supported (the rank-1-product parametrisation of `n_h > 0`, and with it `normalize_keys`, was
-dropped). That branch's checkpoints use different parameter names (`neurons.N.*`) and do not load
-directly.
+dropped).
+
+That branch's checkpoints use different parameter names and do not load directly, but they convert
+with a key renaming: `layers.i.neurons.j.*` becomes `layers.i.neuron_groups.j.*`, and each group's
+`_initial_state` is flattened from shape `(num_neurons, d_state)` to `(num_neurons · d_state,)`:
+
+```python
+import re
+
+def convert_branch_state_dict(sd):
+    out = {}
+    for k, v in sd.items():
+        k = re.sub(r'\.neurons\.(\d+)\.', r'.neuron_groups.\1.', k)
+        if k.endswith('._initial_state') and '.neuron_groups.' in k and v.dim() == 2:
+            v = v.reshape(-1)
+        out[k] = v
+    return out
+
+model.load_state_dict(convert_branch_state_dict(old_state_dict), strict=True)
+```
+
+This was verified on S3 checkpoints of models with neuron groups only (no scalar-state neurons):
+after conversion, the logits are identical to the branch's. It has not been checked for models
+that also have scalar-state neurons.

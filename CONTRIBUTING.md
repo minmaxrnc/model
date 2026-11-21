@@ -16,6 +16,13 @@ Do not submit code copied from GPL, AGPL, LGPL, proprietary, or unknown-license 
 pytest
 ```
 
+The backward-compatibility tests (`tests/test_backward_compat.py`) compare against reference
+values recorded with 0.3.0 (`tests/fixtures/v0_3_0_reference.pt`). They check bit for bit only in
+the environment where the fixture was recorded (same torch version, OS and CPU architecture), since
+PyTorch does not guarantee bitwise-identical seeded initialisation and kernels across versions or
+platforms. Elsewhere they use rounding tolerances, and the operation-trace test is skipped, so a
+run on another setup reports one skipped test.
+
 ## Editing the README
 
 `README.md` is written for GitHub and uses GitHub's math syntax: ``$`...`$`` for inline formulas and

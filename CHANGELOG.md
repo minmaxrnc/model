@@ -86,6 +86,9 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   run for inference (`torch.no_grad()` / `torch.inference_mode()`), with
   `InductorError: TypeError: Expected a number but got Mul` (PyTorch 2.14.1
   on CUDA). Compiled training, bf16 AMP and scalar-state-only models are
-  unaffected. Workarounds: evaluate with the uncompiled model, compile with
+  unaffected. Workaround: set
+  `torch._inductor.config.triton.coalesce_tiling_analysis = False` before
+  compiling (tested on an A100: every case compiles, with no change in
+  speed). Alternatives: evaluate with the uncompiled model, compile with
   `backend="aot_eager"`, or run under bf16 AMP. See
   [Architecture](docs/architecture.md#minmax-neuron-groups).
