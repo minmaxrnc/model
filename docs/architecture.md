@@ -32,7 +32,8 @@ MinMaxRNC_LM
 │   ├── ffn:              FeedForward | GatedFeedForward
 │   ├── norm_neuron:      LayerNorm | RMSNorm | Identity
 │   ├── neuron:           MinMaxNeuron, the scalar_neurons scalar-state neurons (None if 0)
-│   └── neuron_arrays:    ModuleList of MinMaxNeuronArray, one per entry of `neurons`
+│   └── neuron_arrays:    list (nn.ModuleList) of MinMaxNeuronArray, one per entry of `neurons`;
+│                         each array holds its num_neurons neurons as one batched module
 ├── postlayers_ffn_norm:  LayerNorm | RMSNorm | Identity (None unless use_postlayers_ffn)
 ├── postlayers_ffn:       FeedForward | GatedFeedForward (None unless use_postlayers_ffn)
 ├── postlayers_norm:      LayerNorm | RMSNorm (None if postlayers_norm='none')
@@ -102,6 +103,7 @@ itself. Alternatives: evaluate with the uncompiled model, compile with `backend=
 symmetric group $`S_3`$ (tracking the permutation of 3 elements) and generalise to much longer
 sequences than seen in training, but results vary across seeds; $`S_4`$ is solved only on some
 seeds, and the larger groups (the alternating group $`A_5`$ and $`S_5`$) have not been solved yet.
+The configurations are in [Examples](configuration.md#examples).
 
 The states are updated with the parallel prefix-scan over chunks of `unroll_steps` steps, carrying
 the state from one chunk to the next: 

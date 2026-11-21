@@ -15,6 +15,15 @@ A parallelisable sequence model, based a novel form of recurrence —
 - **High expressivity with *perfect memory*.** A MinMax neuron can store and keep information
   for arbitrarily many steps without corrupting it, while being able to manipulate it in a rich way.
 
+  *Star-free expressivity with scalar states.* Neurons of state dimension one can store
+  and keep information reliably, and hence suffice for MinMax RNCs to capture all _star-free regular
+  languages_ — a prominent class of sequential patterns, whose minimal prototypical examples are
+  "remembering whether an event has occurred" and "matching events in a given order".
+
+  *Regular expressivity with higher-dimensional states.* Neurons of state dimension $`d`$ can track
+  permutations of $`d`$ elements, which makes MinMax RNCs capable of capturing all _regular
+  languages_ — the maximal expressivity for finite-memory systems.
+
 - **Guaranteed stability.** States, activations, and gradients stay bounded no matter how long the
   input sequence is, because MinMax recurrence operates by *selecting* values (in contrast with 
   other forms of recurrence such as the ones employed in Linear RNNs, where changes in state values

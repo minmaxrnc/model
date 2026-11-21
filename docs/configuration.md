@@ -10,8 +10,8 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 ---
 
 This page lists every field of [`MinMaxRNCConfig`](../src/minmaxrnc/minmax_rnc.py) and
-[`MinMaxRNCLMConfig`](../src/minmaxrnc/minmax_rnc_lm.py), and the preset
-configurations.
+[`MinMaxRNCLMConfig`](../src/minmaxrnc/minmax_rnc_lm.py), the preset
+configurations, and example configurations used in experiments.
 
 All architecture hyperparameters are specified through a single flat
 `MinMaxRNCConfig` dataclass.
@@ -92,3 +92,71 @@ weights):
 The gated convolution replaces each layer's `Linear(2·d_model, d_model)` with a per-feature gate,
 hence the smaller counts. `large` with the gated convolution is the 112M language model that
 reaches GPT-2's validation loss on OpenWebText.
+
+## Examples
+
+Configurations used in the experiments reported in the
+[NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and in the 0.4.0 validation runs. They
+are starting points, not general recommendations: the presets above remain the defaults to start
+from.
+
+### Group-free synthetic benchmarks
+
+Latching, sequences and induction heads, which test long-horizon memory, sequential pattern
+matching and recall. The models are the `small` preset (scalar-state neurons only):
+
+```python
+from minmaxrnc import MinMaxRNC_LM, MinMaxRNCConfig, MinMaxRNCLMConfig
+
+backbone = MinMaxRNCConfig.small()                 # latching(n), induction heads(n): 2 layers
+backbone = MinMaxRNCConfig.small(n_layers=n + 1)   # sequences(n): n + 1 layers
+model = MinMaxRNC_LM(vocab_size, MinMaxRNCLMConfig(backbone=backbone))
+```
+
+The variants `output_gate=False` and `conv_type='gated'` were also trained, and the one with the
+best validation accuracy was evaluated. Trained on sequences of length up to 512, these models keep
+perfect accuracy on sequences of up to 1M tokens. Training (from the paper): Adam with weight decay
+$`10^{-4}`$, learning rate $`10^{-3}`$ halved every 5 epochs, batch size 64, at most 30 epochs with
+early stopping, automatic mixed precision and `torch.compile`.
+
+### Word problems of the symmetric groups $`S_3`$ and $`S_4`$
+
+These need [neuron arrays](architecture.md#minmax-neuron-arrays) of larger state dimension: a
+neuron with state dimension $`d`$ can track permutations of $`d`$ elements. One layer with 16
+neurons of state dimension 3 for $`S_3`$, and 4 for $`S_4`$, with no scalar-state neurons:
+
+```python
+from minmaxrnc import MinMaxRNCConfig, NeuronArray
+
+s3 = MinMaxRNCConfig(d_model=90, n_layers=1, neurons=[NeuronArray(d_state=3, num_neurons=16)],
+                     s_r_init='asymmetric')
+s4 = MinMaxRNCConfig(d_model=90, n_layers=1, neurons=[NeuronArray(d_state=4, num_neurons=16)],
+                     s_r_init='asymmetric')
+```
+
+Training settings of the runs behind these results (Adam, cosine schedule, learning rate
+$`10^{-3}`$, three seeds; validation on sequences of length 512):
+
+| Task | Model | Training data | Batch size | Epochs | Best validation accuracy, per seed |
+|---|---|---|---|---|---|
+| $`S_3`$ | `s3` | 20k sequences of length 128 | 8 | 30 | 100%, 100%, 36% |
+| $`S_4`$ | `s4` | 200k sequences of length 128 | 64 | 100 | 100%, 26%, 100% |
+
+The best $`S_3`$ model was 100% accurate on sequences of length 1,024,000. Results depend on the
+seed, and on the batch size: with batch size 64, `s3` did not learn $`S_3`$ on any of three seeds.
+With 2 layers and state dimension 4 (`dataclasses.replace(s4, n_layers=2)`), $`S_3`$ was learned
+on 3 of 3 seeds with batch size 8.
+
+With batch size 8 and no gradient clipping, training sometimes collapsed to chance level after
+converging, so keep the best checkpoint rather than the last one.
+
+### Language model at GPT-2 scale
+
+The `large` preset with the gated convolution, with the GPT-2 vocabulary (112M parameters):
+
+```python
+model = MinMaxRNC_LM(50257, MinMaxRNCLMConfig(backbone=MinMaxRNCConfig.large(), conv_type='gated'))
+```
+
+Trained on OpenWebText following nanoGPT's GPT-2 recipe, it reaches the validation loss of GPT-2
+124M (3.12).
