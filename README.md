@@ -5,7 +5,7 @@
 
 ---
 
-A parallelisable sequence model, based a novel form of recurrence — 
+A parallelisable sequence model, based on a novel form of recurrence — 
 *truly for long-sequence processing.* 
 
 
@@ -63,7 +63,7 @@ A parallelisable sequence model, based a novel form of recurrence —
   MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequences of over 
   1M tokens, 
   in contrast with DeltaProduct — one of the few models having the required expressivity —
-  that loses accuracy as the sequences grow eventually drops to random-guess accuracy. 
+  that loses accuracy as the sequences grow and eventually drops to random-guess accuracy. 
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss (3.12) as GPT-2 of 124M parameters.
 
