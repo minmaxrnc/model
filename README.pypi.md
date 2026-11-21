@@ -1,8 +1,8 @@
 <!-- Generated from README.md by scripts/build_pypi_readme.py; do not edit. -->
 # MinMax Recurrent Neural Cascades
 
-[Project website](https://minmaxrnc.org/) · [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) ·
-[arXiv paper](https://arxiv.org/abs/2605.06384) · [Documentation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/README.md)
+[Project website](https://minmaxrnc.org/) &nbsp;·&nbsp; [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) &nbsp;·&nbsp;
+[arXiv paper](https://arxiv.org/abs/2605.06384) &nbsp;·&nbsp; [Documentation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/README.md)
 
 ---
 
