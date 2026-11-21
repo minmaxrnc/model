@@ -9,7 +9,7 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 ---
 
-This page describes the modules of a MinMax RNC, from neuron groups and layers to the backbone
+This page describes the modules of a MinMax RNC, from neuron arrays and layers to the backbone
 and the language-model wrapper, and how their parameters are initialised.
 
 **Notation.** As in [Mathematical foundations](foundations.md):
@@ -32,7 +32,7 @@ MinMaxRNC_LM
 │   ├── ffn:              FeedForward | GatedFeedForward
 │   ├── norm_neuron:      LayerNorm | RMSNorm | Identity
 │   ├── neuron:           MinMaxNeuron, the scalar_neurons scalar-state neurons (None if 0)
-│   └── neuron_groups:    ModuleList of MinMaxNeuronGroup, one per entry of `neurons`
+│   └── neuron_arrays:    ModuleList of MinMaxNeuronArray, one per entry of `neurons`
 ├── postlayers_ffn_norm:  LayerNorm | RMSNorm | Identity (None unless use_postlayers_ffn)
 ├── postlayers_ffn:       FeedForward | GatedFeedForward (None unless use_postlayers_ffn)
 ├── postlayers_norm:      LayerNorm | RMSNorm (None if postlayers_norm='none')
@@ -47,7 +47,7 @@ The package's classes in the tree are defined in:
 | `MinMaxRNC_LM` | [`minmax_rnc_lm.py`](../src/minmaxrnc/minmax_rnc_lm.py) |
 | `MinMaxRNC` | [`minmax_rnc.py`](../src/minmaxrnc/minmax_rnc.py) |
 | `MinMaxLayer` | [`minmax_layer.py`](../src/minmaxrnc/minmax_layer.py) |
-| `MinMaxNeuronGroup`, `MinMaxNeuron` | [`minmax_neuron.py`](../src/minmaxrnc/minmax_neuron.py) |
+| `MinMaxNeuronArray`, `MinMaxNeuron` | [`minmax_neuron.py`](../src/minmaxrnc/minmax_neuron.py) |
 | `BasicConv` | [`modules/basic_conv.py`](../src/minmaxrnc/modules/basic_conv.py) |
 | `GatedConv` | [`modules/gated_conv.py`](../src/minmaxrnc/modules/gated_conv.py) |
 | `FeedForward`, `GatedFeedForward` | [`modules/feedforward.py`](../src/minmaxrnc/modules/feedforward.py) |
@@ -55,12 +55,12 @@ The package's classes in the tree are defined in:
 The other modules (`Embedding`, `ModuleList`, `LayerNorm`, `RMSNorm`, `Identity`, `Dropout`,
 `Linear`) are PyTorch's.
 
-## MinMax Neuron Groups
+## MinMax Neuron Arrays
 
-[`MinMaxNeuronGroup`](../src/minmaxrnc/minmax_neuron.py) provides $`K`$ = `num_neurons` neurons with the same state
+[`MinMaxNeuronArray`](../src/minmaxrnc/minmax_neuron.py) provides $`K`$ = `num_neurons` neurons with the same state
 dimension $`d`$, fed the same input $`u_t`$. Each neuron $`i`$ has its own parameters
 $`R_t^{(i)} \in ℝ^{d \times d}`$ and $`s_t^{(i)} \in ℝ^d`$, and its own state
-$`x_t^{(i)} \in ℝ^d`$. The group computes them for all its neurons at once:
+$`x_t^{(i)} \in ℝ^d`$. The array computes them for all its neurons at once:
 
 1. two linear layers project the input to the parameters of every neuron, at all positions at
    once: for an input of shape `(B, T, d_model)` (batch size $`B`$, sequence length $`T`$),
@@ -81,10 +81,10 @@ only the compute is batched.
 **Cost.** Scalar-state neurons ($`d = 1`$) use an element-wise scan: $`O(T \log T)`$ work per
 neuron. For $`d > 1`$ each scan step composes $`d \times d`$ matrices: the work is
 $`O(K \cdot T \log T \cdot d^3)`$, and the scan materialises a `(B·K, T, d, d, d)` intermediate.
-Keep $`d`$ small (≈ 2–8), and scale with `num_neurons` and more groups instead.
+Keep $`d`$ small (≈ 2–8), and scale with `num_neurons` and more arrays instead.
 
 **Known issue: `torch.compile`.** With PyTorch 2.14.1 on CUDA, the default Inductor backend
-fails to compile groups with $`d > 1`$ in fp32 for inference (`torch.no_grad()` or
+fails to compile neuron arrays with $`d > 1`$ in fp32 for inference (`torch.no_grad()` or
 `torch.inference_mode()`), with `InductorError: TypeError: Expected a number but got Mul`.
 Compiled training, bf16 AMP and models with scalar-state neurons only are unaffected.
 Workaround: before compiling, set
@@ -109,9 +109,9 @@ one scan over the whole sequence when `unroll_steps` equals its length, and a pl
 recurrence when `unroll_steps = 1`, e.g. for token-by-token generation
 (see [Parallel computation](foundations.md#parallel-computation-via-prefix-scan)).
 
-The group's state is the flat vector of its `num_neurons · d` coordinates (neuron-major). 
-For d = 1 the group is evaluated with a dedicated element-wise scan.
-The layer holds its `scalar_neurons` as a [`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py), the group of
+The array's state is the flat vector of its `num_neurons · d` coordinates (neuron-major). 
+For d = 1 the array is evaluated with a dedicated element-wise scan.
+The layer holds its `scalar_neurons` as a [`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py), the array of
 [`MinMaxNeuronConfig.d_state`](../src/minmaxrnc/minmax_neuron.py) scalar-state neurons.
 
 **Learnable parameters:** weights $`W_\mathrm{s}`$, $`W_\mathrm{r}`$, $`W_\mathrm{o}`$ and biases
@@ -130,7 +130,7 @@ conv      = Conv(conv_in)
 ffn_in    = FFNNorm(u + conv)
 ffn       = FFN(ffn_in)
 neuron_in = NeuronNorm(u + conv + ffn)
-neuron    = Sum( NeuronGroup(neuron_in) for each NeuronGroup )
+neuron    = Sum( NeuronArray(neuron_in) for each NeuronArray )
 output    = u + neuron
 ```
 
@@ -141,15 +141,17 @@ where operations are capitalised and variables are lowercase:
 | `ConvNorm`, `FFNNorm`, `NeuronNorm` | pre-norms (`norm_conv`, `norm_ffn`, `norm_neuron` in the tree above): `LayerNorm` (default), `RMSNorm`, or none, set by `norm` | [`MinMaxRNCConfig`](configuration.md#minmaxrncconfig) |
 | `Conv` | mixing of the current input with the previous one: `BasicConv` (default) or `GatedConv`, set by `conv_type` | [Convolution Variants](#convolution-variants) |
 | `FFN` | feature-mixing feed-forward network: `GatedFeedForward` (default) or `FeedForward`, set by `ffn_type` | [Feed-forward Variants](#feed-forward-variants) |
-| [`NeuronGroup`](../src/minmaxrnc/minmax_rnc.py) | a group of MinMax neurons, evaluated as described above | [MinMax Neuron Groups](#minmax-neuron-groups) |
+| [`NeuronArray`](../src/minmaxrnc/minmax_rnc.py) | an array of MinMax neurons, evaluated as described above | [MinMax Neuron Arrays](#minmax-neuron-arrays) |
 
-The sum ranges over all the layer's neuron groups — the group of the `scalar_neurons` (it is
-`neuron` in the tree above) and each group of `neurons` (`neuron_groups`) — which all read the same
+The layer holds an ordered list of neuron arrays: the array of the `scalar_neurons` (it is
+`neuron` in the tree above) first, then one array per entry of `neurons` (`neuron_arrays`), in
+order. The order fixes parameter names, the order of the recurrent states and the seeded
+initialisation, but not the output: the sum ranges over all the arrays, which all read the same
 normalised input `neuron_in`. Recurrent states are left out: the convolution and every neuron
-group also take the state from the previous chunk and return the updated one. Each group's output
+array also take the state from the previous chunk and return the updated one. Each array's output
 projection is initialised with `wang_init_` using the layer's total state
 dimension, so the layer's overall contribution to the residual stream stays O(1) however its state
-is split across groups.
+is split across arrays.
 
 `Conv` and `FFN` outputs are used to compute a richer input for the neuron but are not independently
 added to the residual stream. The convolution provides short-range context (one previous input).  
@@ -202,8 +204,8 @@ Both functions initialise a parameter $`p`$ by sampling $`p \sim \mathcal{N}(0, 
 Here $`\mathrm{dim}`$ is the fan-in of the projection being initialised (the size of its input):
 $`d_\mathrm{model}`$ for most projections, $`2 \cdot d_\mathrm{model}`$ for BasicConv, and the FFN hidden
 size for the FFN down-projection; for the neuron output projection it is the layer's total number of
-state coordinates (the sum of $`K \cdot d`$ over the layer's neuron groups, i.e. the group's own
-$`K \cdot d`$ when the layer has a single group). $`L`$ = `num_blocks` is the number of residual blocks.
+state coordinates (the sum of $`K \cdot d`$ over the layer's neuron arrays, i.e. the array's own
+$`K \cdot d`$ when the layer has a single array). $`L`$ = `num_blocks` is the number of residual blocks.
 
 | Function | $`\mathrm{std}`$ | Paper |
 |---|---|---|

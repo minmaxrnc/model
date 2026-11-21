@@ -25,7 +25,7 @@ from minmaxrnc.minmax_rnc_lm import MinMaxRNC_LM, MinMaxRNCLMConfig
 DT = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}
 
 # (name, kwargs) — the legacy d_state shorthand, scalar_neurons, an explicit
-# scalar-state group, a group with d > 1, and a mix of all.
+# scalar-state array, an array with d > 1, and a mix of all.
 ARCHS = [
     ('d_state',        dict(d_state=6)),
     ('scalar_neurons', dict(scalar_neurons=6)),
@@ -85,7 +85,7 @@ def _flat_states(state):
     for layer in state:
         if 'neuron' in layer:
             out.append(layer['neuron'])
-        out.extend(layer.get('neuron_groups', []))
+        out.extend(layer.get('neuron_arrays', []))
     return out
 
 

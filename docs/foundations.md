@@ -63,7 +63,7 @@ Per neuron, parameters scale as $`O(d^2)`$ and each composition step
 of the scan as $`O(d^3)`$. A neuron with state dimension $`d`$ can realise
 permutation semiautomata of degree $`d`$, so $`d`$ should be as large as the task
 needs but typically small; layers scale by having more neurons
-(`num_neurons`) and more neuron groups rather than larger $`d`$. 
+(`num_neurons`) and more neuron arrays rather than larger $`d`$. 
 
 
 
@@ -228,7 +228,7 @@ can be computed in parallel:
 
 For scalar-state neurons the scan is element-wise (`minmax_scan.all_states`);
 for $`d > 1`$ it composes $`d \times d`$ matrices (`minmax_scan.all_states_matrix`),
-with the neurons of a group folded into the batch axis, so every composition
+with the neurons of an array folded into the batch axis, so every composition
 costs $`O(d^3)`$.
 
 At inference time (token-by-token generation) the recurrence runs

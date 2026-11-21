@@ -24,8 +24,8 @@ that relates 0.4.0 to 0.3.0; see [CHANGELOG.md](../CHANGELOG.md) for the full li
   neurons: `d_state=N` and `scalar_neurons=N` build exactly the same model; set at most one of
   them. The presets (`small`, `medium`, `large`) still set `d_state`, so `preset.d_state` keeps its
   0.3.0 value; `preset.num_scalar_neurons` gives the count whichever field was used.
-- **[`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py)** is still the class of 0.3.0's MinMax Neuron. With `d_state = N` it is the group
-  of `N` scalar-state neurons, now a special case of [`MinMaxNeuronGroup`](../src/minmaxrnc/minmax_neuron.py), which implements neurons
+- **[`MinMaxNeuron`](../src/minmaxrnc/minmax_neuron.py)** is still the class of 0.3.0's MinMax Neuron. With `d_state = N` it is the array
+  of `N` scalar-state neurons, now a special case of [`MinMaxNeuronArray`](../src/minmaxrnc/minmax_neuron.py), which implements neurons
   of any state dimension. It is how a layer holds its `scalar_neurons` (attribute `neuron`, the
   0.3.0 name).
 
@@ -54,8 +54,8 @@ With the defaults, a model has the same parameter names, shapes and seeded initi
 
 ## Recurrent state format
 
-Per layer it is still `{'neuron': …, 'conv': …}`; models with `neurons` groups add a
-`'neuron_groups': [...]` entry (one `(B, num_neurons · d_state)` state per group), and models
+Per layer it is still `{'neuron': …, 'conv': …}`; models with `neurons` arrays add a
+`'neuron_arrays': [...]` entry (one `(B, num_neurons · d_state)` state per array), and models
 without scalar neurons have no `'neuron'` entry.
 
 ## Small behaviour changes
@@ -72,7 +72,7 @@ supported (the rank-1-product parametrisation of `n_h > 0`, and with it `normali
 dropped).
 
 That branch's checkpoints use different parameter names and do not load directly, but they convert
-with a key renaming: `layers.i.neurons.j.*` becomes `layers.i.neuron_groups.j.*`, and each group's
+with a key renaming: `layers.i.neurons.j.*` becomes `layers.i.neuron_arrays.j.*`, and each array's
 `_initial_state` is flattened from shape `(num_neurons, d_state)` to `(num_neurons · d_state,)`:
 
 ```python
@@ -81,8 +81,8 @@ import re
 def convert_branch_state_dict(sd):
     out = {}
     for k, v in sd.items():
-        k = re.sub(r'\.neurons\.(\d+)\.', r'.neuron_groups.\1.', k)
-        if k.endswith('._initial_state') and '.neuron_groups.' in k and v.dim() == 2:
+        k = re.sub(r'\.neurons\.(\d+)\.', r'.neuron_arrays.\1.', k)
+        if k.endswith('._initial_state') and '.neuron_arrays.' in k and v.dim() == 2:
             v = v.reshape(-1)
         out[k] = v
     return out
@@ -90,6 +90,6 @@ def convert_branch_state_dict(sd):
 model.load_state_dict(convert_branch_state_dict(old_state_dict), strict=True)
 ```
 
-This was verified on S3 checkpoints of models with neuron groups only (no scalar-state neurons):
+This was verified on S3 checkpoints of models with neuron arrays only (no scalar-state neurons):
 after conversion, the logits are identical to the branch's. It has not been checked for models
 that also have scalar-state neurons.

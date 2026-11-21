@@ -239,7 +239,7 @@ class TestV030Api(unittest.TestCase):
         model = MinMaxRNC(MinMaxRNCConfig(16, 2, 8))
         for layer in model.layers:
             self.assertIsInstance(layer.neuron, MinMaxNeuron)
-            self.assertEqual(len(layer.neuron_groups), 0)
+            self.assertEqual(len(layer.neuron_arrays), 0)
         for layer_state in model.initial_state:
             self.assertEqual(list(layer_state.keys()), ['neuron', 'conv'])
         _, state = model(torch.randn(1, 4, 16), 4, return_state=True)

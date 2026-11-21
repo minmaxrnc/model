@@ -10,7 +10,7 @@ See the [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and the
 
 - [Mathematical foundations](foundations.md) — the MinMax algebra, the MinMax recurrence for any
   state dimension, composition closure, and the parallel prefix scan.
-- [Architecture](architecture.md) — neuron groups, layers, convolutions, feed-forward networks,
+- [Architecture](architecture.md) — neuron arrays, layers, convolutions, feed-forward networks,
   initialisation, the backbone and the language-model wrapper.
 - [Configuration](configuration.md) — every configuration field, and the presets.
 - [Numerical precision](precision.md) — mixed precision (`amp_dtype`) and the dtype of the MinMax

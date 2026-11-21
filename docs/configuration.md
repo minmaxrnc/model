@@ -38,8 +38,8 @@ All architecture hyperparameters are specified through a single flat
 | `conv_init_val` | `float` | `0.0` | Initial gate logit for [`GatedConv`](../src/minmaxrnc/modules/gated_conv.py) |
 | `prelayers_dropout` | `float` | `0.0` | FFN dropout override for the first layer only |
 | `use_postlayers_ffn` | `bool` | `False` | Add an FFN after all layers |
-| `scalar_neurons` | `int` | `0` | Number of scalar-state neurons per layer (shorthand for the group [`NeuronGroup(1, scalar_neurons)`](../src/minmaxrnc/minmax_rnc.py)). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
-| `neurons` | `tuple[NeuronGroup, ...]` | `()` | Further neuron groups per layer, of any state dimension: `NeuronGroup(d_state, num_neurons=1)` or equivalent tuples/lists |
+| `scalar_neurons` | `int` | `0` | Number of scalar-state neurons per layer (shorthand for the array [`NeuronArray(1, scalar_neurons)`](../src/minmaxrnc/minmax_rnc.py)). Each layer needs `scalar_neurons` (or `d_state`) > 0 and/or a non-empty `neurons` |
+| `neurons` | `tuple[NeuronArray, ...]` | `()` | Further neuron arrays per layer, of any state dimension: `NeuronArray(d_state, num_neurons=1)` or equivalent tuples/lists. Each layer holds an ordered list of neuron arrays: the `scalar_neurons` array first, then these in order |
 | `recurrence_dtype` | `str \| None` | `None` | Recurrence precision: `None` (no casting), or pinned `'fp32'`, `'bf16'`, `'fp16'` — see [Numerical precision](precision.md) |
 | `amp_dtype` | `str \| None` | `None` | Model-level autocast: `None` (caller decides), `'bf16'`, `'fp16'` |
 
@@ -69,7 +69,7 @@ its default.
 
 - **Depth.** The `n_layers` argument changes the number of layers and nothing else.
 - **Other fields.** Configurations are frozen dataclasses, so other fields are changed by copying:
-  `dataclasses.replace(MinMaxRNCConfig.large(), norm='rmsnorm')`. To add neuron groups of larger
+  `dataclasses.replace(MinMaxRNCConfig.large(), norm='rmsnorm')`. To add neuron arrays of larger
   state dimension, replace `neurons` the same way.
 - **Neuron count.** The presets set the legacy field `d_state` (see
   [Upgrading from 0.3.0](upgrading.md)); `preset.num_scalar_neurons` gives the number of

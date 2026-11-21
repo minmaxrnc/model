@@ -6,7 +6,7 @@
 
 ---
 
-A parallelisable sequence model based on a novel form of recurrence — 
+A parallelisable sequence model, based a novel form of recurrence — 
 *truly for long-sequence processing.* 
 
 
@@ -26,7 +26,7 @@ A parallelisable sequence model based on a novel form of recurrence —
   with the possibility of combining the two strategies.
   
   *Parallel training.* All states across a sequence of length <em>T</em> can be computed simultaneously
-    in depth <em>O</em>(log <em>T</em>) and work <em>O</em>(<em>T</em>) with no sequential bottleneck — or, to control memory
+    in depth <em>O</em>(log <em>T</em>) and work <em>O</em>(<em>T</em> · log <em>T</em>) with no sequential bottleneck — or, to control memory
     usage over long sequences, they can be computed in chunks of <em>k</em> steps using recurrence across
     chunks (`unroll_steps = k`).
     All strategies give identical results; see
@@ -44,18 +44,18 @@ A parallelisable sequence model based on a novel form of recurrence —
 
 ## Measured Performance
 
-- **Ahead of SOTA recurrent models on long sequences.** On synthetic benchmarks focusing on testing
+- **Ahead of SOTA recurrent models on long sequences.** On synthetic benchmarks testing
   long-term memory, sequential pattern matching, and recall capabilities, 
   MinMax RNCs achieve perfect validation accuracy 
   when trained on sequences of length up to 512 tokens, and retain the same accuracy on sequences of
-  over 1M tokens, in contrast, Mamba, mLSTM, xLSTM, DeltaNet, and sLSTM lose accuracy as the
-  sequences grow and eventually drop to random-guess accuracy. 
-  On the word problems of the symmetric groups <em>S</em><sub>3</sub> and <em>S</em><sub>4</sub> —
-  that are beyond the above benchmarks in terms of the required formal expressivity —
-  MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequence of over 
+  over 1M tokens; in contrast, the SOTA recurrent models Mamba, mLSTM, xLSTM, DeltaNet, and sLSTM
+  lose accuracy as the sequences grow and eventually drop to random-guess accuracy. 
+  On the word problems of the symmetric groups <em>S</em><sub>3</sub> and <em>S</em><sub>4</sub> 
+  (that formally require a higher expressivity compared to the above benchmarks)
+  MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequences of over 
   1M tokens, 
-  in contrast with DeltaProduct (one of the few models having the required expressivity)
-  that loses accuracy al as the sequences grow eventually drops to random-guess accuracy. 
+  in contrast with DeltaProduct — one of the few models having the required expressivity —
+  that loses accuracy as the sequences grow eventually drops to random-guess accuracy. 
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss (3.12) as GPT-2 of 124M parameters.
 
@@ -139,19 +139,19 @@ See [Presets](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.
 
 ### Custom configuration
 
-Each layer holds groups of MinMax neurons. A neuron can have any state dimension <em>d</em>: scalar-state
+Each layer holds arrays of MinMax neurons. A neuron can have any state dimension <em>d</em>: scalar-state
 neurons (<em>d</em> = 1) are the cheapest, and larger <em>d</em> lets a neuron track richer state, e.g.
 permutations of <em>d</em> elements.
 
 ```python
-from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
+from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronArray
 
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
     scalar_neurons   = 192,                           # 192 scalar-state neurons per layer
     neurons          = [
-        NeuronGroup(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
+        NeuronArray(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
         (4, 2),                                       # tuple shorthand: d_state=4, num_neurons=2
     ],
     norm             = 'rmsnorm',
@@ -163,10 +163,10 @@ cfg = MinMaxRNCConfig(
 model = MinMaxRNC(cfg)
 ```
 
-The neurons of a group are evaluated together, as one batched computation. The cost of a neuron
+The neurons of an array are evaluated together, as one batched computation. The cost of a neuron
 grows as <em>d</em><sup>3</sup>, so keep <em>d</em> small (≈ 2–8) and scale with more neurons instead. See
 [Configuration](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.md) for every field, and
-[MinMax Neuron Groups](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md#minmax-neuron-groups) for the cost.
+[MinMax Neuron Arrays](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md#minmax-neuron-arrays) for the cost.
 
 ### Mixed precision
 
@@ -193,16 +193,16 @@ combinations.
 where the matrix <em>R</em><sub><em>t</em></sub> ∈ ℝ<sup><em>d</em> × <em>d</em></sup> and the vector <em>s</em><sub><em>t</em></sub> ∈ ℝ<sup><em>d</em></sup> are affine projections
 of the current input. It is an ordinary affine recurrence in which addition and multiplication are
 replaced by max and min, i.e. ⊕ and ⊗ are the matrix operations of the
-(max, min) algebra. For scalar states (<em>d</em> = 1) it reads
-<em>x</em><sub><em>t</em></sub> = max(min(<em>r</em><sub><em>t</em></sub>, <em>x</em><sub><em>t</em>−1</sub>), <em>s</em><sub><em>t</em></sub>): the reset <em>r</em><sub><em>t</em></sub> caps the previous
-state and the set <em>s</em><sub><em>t</em></sub> raises it. Every state value is selected from the previous state or the
-current inputs, so values can be held exactly for any number of steps, and states stay bounded.
+MinMax algebra. For scalar states (<em>d</em> = 1) it reads
+<em>x</em><sub><em>t</em></sub> = max(min(<em>r</em><sub><em>t</em></sub>, <em>x</em><sub><em>t</em>−1</sub>), <em>s</em><sub><em>t</em></sub>): the reset signal <em>r</em><sub><em>t</em></sub> caps the previous
+state and the set signal <em>s</em><sub><em>t</em></sub> raises it. Every state value is selected from the previous state or
+the current inputs, so values can be held exactly for any number of steps, and states stay bounded.
 Compositions of MinMax recurrence maps are again MinMax recurrence maps, which is what allows the
 parallel scan.
 
-**MinMax RNC.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
+**MinMax RNCs.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
 sub-modules, each applied to a normalised input (pre-norm): a short **convolution** over the
-current and the previous token, a **feed-forward network** for feature mixing, and **groups of
+current and the previous token, a **feed-forward network** for feature mixing, and **arrays of
 MinMax neurons**, which receive the output of the other two. Only the neurons' output, summed over
 all neurons, is added back to the residual stream.
 
@@ -212,7 +212,7 @@ See [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.0/do
 
 - [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md) — the MinMax algebra and recurrence, and how it
   is computed in parallel.
-- [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md) — the modules, from neuron groups to the language model,
+- [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md) — the modules, from neuron arrays to the language model,
   and their initialisation.
 - [Configuration](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.md) — every configuration field, and the presets.
 - [Numerical precision](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/precision.md) — mixed precision and the dtype of the recurrence.

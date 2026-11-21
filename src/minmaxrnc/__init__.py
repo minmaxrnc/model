@@ -3,15 +3,15 @@
 
 __version__ = "0.4.0"
 
-from .minmax_rnc     import MinMaxRNC, MinMaxRNCConfig, NeuronGroup, AmpDtype
+from .minmax_rnc     import MinMaxRNC, MinMaxRNCConfig, NeuronArray, AmpDtype
 from .minmax_rnc_lm  import MinMaxRNC_LM, MinMaxRNCLMConfig
 from .minmax_neuron  import (
     SRInitType,
     RecurrenceDtype,
     MinMaxNeuron,
     MinMaxNeuronConfig,
-    MinMaxNeuronGroup,
-    MinMaxNeuronGroupConfig,
+    MinMaxNeuronArray,
+    MinMaxNeuronArrayConfig,
 )
 
 __all__ = [
@@ -21,11 +21,11 @@ __all__ = [
     "MinMaxRNCLMConfig",
     "SRInitType",
     # new in 0.4.0
-    "NeuronGroup",
+    "NeuronArray",
     "RecurrenceDtype",
     "AmpDtype",
     "MinMaxNeuron",
     "MinMaxNeuronConfig",
-    "MinMaxNeuronGroup",
-    "MinMaxNeuronGroupConfig",
+    "MinMaxNeuronArray",
+    "MinMaxNeuronArrayConfig",
 ]

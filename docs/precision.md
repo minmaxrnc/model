@@ -91,7 +91,7 @@ mixed and implicit. Pinning makes the choice explicit.
 
 **Measured gradient accuracy.** Relative error of the gradients of the $`s`$/$`r`$
 projections against full fp32, on sequences of length 8192 (NVIDIA A100 and L4,
-mean over architectures with scalar-state neurons, neuron groups and both; the
+mean over architectures with scalar-state neurons, neuron arrays and both; the
 first figure is for inputs that make neurons hold values for long, the second for
 random inputs). The share due to the recurrence itself is the error against the
 run with the same `amp_dtype` and an fp32 recurrence, whose forward pass is

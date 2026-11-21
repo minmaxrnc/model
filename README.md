@@ -138,19 +138,19 @@ See [Presets](docs/configuration.md#presets) for the details.
 
 ### Custom configuration
 
-Each layer holds groups of MinMax neurons. A neuron can have any state dimension $`d`$: scalar-state
+Each layer holds arrays of MinMax neurons. A neuron can have any state dimension $`d`$: scalar-state
 neurons ($`d = 1`$) are the cheapest, and larger $`d`$ lets a neuron track richer state, e.g.
 permutations of $`d`$ elements.
 
 ```python
-from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronGroup
+from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronArray
 
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
     scalar_neurons   = 192,                           # 192 scalar-state neurons per layer
     neurons          = [
-        NeuronGroup(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
+        NeuronArray(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
         (4, 2),                                       # tuple shorthand: d_state=4, num_neurons=2
     ],
     norm             = 'rmsnorm',
@@ -162,10 +162,10 @@ cfg = MinMaxRNCConfig(
 model = MinMaxRNC(cfg)
 ```
 
-The neurons of a group are evaluated together, as one batched computation. The cost of a neuron
+The neurons of an array are evaluated together, as one batched computation. The cost of a neuron
 grows as $`d^3`$, so keep $`d`$ small (≈ 2–8) and scale with more neurons instead. See
 [Configuration](docs/configuration.md) for every field, and
-[MinMax Neuron Groups](docs/architecture.md#minmax-neuron-groups) for the cost.
+[MinMax Neuron Arrays](docs/architecture.md#minmax-neuron-arrays) for the cost.
 
 ### Mixed precision
 
@@ -203,7 +203,7 @@ parallel scan.
 
 **MinMax RNCs.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
 sub-modules, each applied to a normalised input (pre-norm): a short **convolution** over the
-current and the previous token, a **feed-forward network** for feature mixing, and **groups of
+current and the previous token, a **feed-forward network** for feature mixing, and **arrays of
 MinMax neurons**, which receive the output of the other two. Only the neurons' output, summed over
 all neurons, is added back to the residual stream.
 
@@ -213,7 +213,7 @@ See [Mathematical foundations](docs/foundations.md) and [Architecture](docs/arch
 
 - [Mathematical foundations](docs/foundations.md) — the MinMax algebra and recurrence, and how it
   is computed in parallel.
-- [Architecture](docs/architecture.md) — the modules, from neuron groups to the language model,
+- [Architecture](docs/architecture.md) — the modules, from neuron arrays to the language model,
   and their initialisation.
 - [Configuration](docs/configuration.md) — every configuration field, and the presets.
 - [Numerical precision](docs/precision.md) — mixed precision and the dtype of the recurrence.

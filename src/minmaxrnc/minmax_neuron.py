@@ -12,17 +12,17 @@ semiring:
 
 with R_t ∈ R^{d×d} and s_t ∈ R^d computed from the input u_t.
 
-MinMaxNeuronGroup implements a group of K such neurons with the same d, fed
+MinMaxNeuronArray implements an array of K such neurons with the same d, fed
 the same input and summed into one output. It is the only implementation;
 the state dimension d is just a parameter. For d = 1 (scalar-state neurons),
 R_t is a scalar and the recurrence is the element-wise
-x_t = max(min(r_t, x_{t-1}), s_t), which the group evaluates with the
+x_t = max(min(r_t, x_{t-1}), s_t), which the array evaluates with the
 element-wise scan — the computation is then exactly that of 0.3.0's MinMax
 Neuron. For d > 1 it uses the matrix scan. The choice depends only on d,
 which is fixed at construction.
 
 MinMaxNeuron / MinMaxNeuronConfig (the 0.3.0 API) remain: a MinMaxNeuron with
-d_state = N is the group of N scalar-state neurons.
+d_state = N is the array of N scalar-state neurons.
 """
 
 import contextlib
@@ -89,17 +89,17 @@ def _recurrence_region(recurrence_dtype, device: torch.device):
 
 
 # ======================================================================
-# Group of MinMax neurons (any state dimension)
+# Array of MinMax neurons (any state dimension)
 # ======================================================================
 
 @dataclass(frozen=True)
-class MinMaxNeuronGroupConfig:
+class MinMaxNeuronArrayConfig:
     """
-    Configuration for a group of `num_neurons` MinMax neurons, each with
+    Configuration for an array of `num_neurons` MinMax neurons, each with
     state dimension `d_state`, all fed the same input and summed into a
     single output.
 
-    Normally built by MinMaxRNCConfig.layer_cfg from a NeuronGroup in
+    Normally built by MinMaxRNCConfig.layer_cfg from a NeuronArray in
     MinMaxRNCConfig.neurons.
 
     Fields
@@ -119,9 +119,9 @@ class MinMaxNeuronGroupConfig:
         and the parallel scan's work as O(num_neurons · T log T · d³), so for
         d > 1 keep d small and scale with num_neurons instead.
     num_neurons : int
-        Number K of independent neurons in the group. They are evaluated as
+        Number K of independent neurons in the array. They are evaluated as
         one batched scan and their outputs summed — identical to K separate
-        groups of one neuron each, summed; only the compute is batched.
+        arrays of one neuron each, summed; only the compute is batched.
     dropout : float
         Dropout probability applied to the input u before projection.
     train_init : bool
@@ -147,12 +147,12 @@ class MinMaxNeuronGroupConfig:
         does no casting.
     _state_size_in_layer : int | None
         Total number of state coordinates (Σ num_neurons · d_state over every
-        neuron group) in the enclosing MinMaxLayer, whose outputs are summed.
+        neuron array) in the enclosing MinMaxLayer, whose outputs are summed.
         Used as wang_init_'s `dim` for the output projection, so the layer's
         *total* residual-stream contribution stays O(1) however its state is
-        split across groups — as if the layer had a single output projection
-        over all its concatenated states. None (default): this group's own
-        num_neurons · d_state, i.e. a layer with this group only.
+        split across arrays — as if the layer had a single output projection
+        over all its concatenated states. None (default): this array's own
+        num_neurons · d_state, i.e. a layer with this array only.
     """
 
     _num_blocks:          int
@@ -174,9 +174,9 @@ class MinMaxNeuronGroupConfig:
             raise ValueError(f"num_neurons must be > 0, got {self.num_neurons}")
 
 
-class MinMaxNeuronGroup(nn.Module):
+class MinMaxNeuronArray(nn.Module):
     """
-    A group of K = num_neurons MinMax neurons with state dimension d = d_state
+    An array of K = num_neurons MinMax neurons with state dimension d = d_state
     each, all fed the same input and summed into a single output.
 
     Each neuron i maintains x_t^(i) ∈ R^d, updated by
@@ -187,7 +187,7 @@ class MinMaxNeuronGroup(nn.Module):
     are unconstrained affine projections of the input u_t (weights and biases). For d = 1 this is
     the element-wise x_t = max(min(r_t, x_{t-1}), s_t).
 
-    State layout: the group's state is the flat vector of its K·d state
+    State layout: the array's state is the flat vector of its K·d state
     coordinates (neuron-major: neuron i occupies coordinates i·d … i·d+d-1).
     The initial state x_0 has shape (K·d,), the recurrent state (B, K·d), and
     the s / output projections act on K·d coordinates. For d = 1 every tensor
@@ -214,16 +214,16 @@ class MinMaxNeuronGroup(nn.Module):
     state coordinates).
     """
 
-    def __init__(self, cfg: MinMaxNeuronGroupConfig):
+    def __init__(self, cfg: MinMaxNeuronArrayConfig):
 
         super().__init__()
 
-        self.cfg = self.group_cfg = cfg
+        self.cfg = self.array_cfg = cfg
         self._build()
 
 
     def _build(self):
-        cfg = self.group_cfg
+        cfg = self.array_cfg
 
         self.I = I = cfg.d_model
         self.d = d = cfg.d_state
@@ -247,7 +247,7 @@ class MinMaxNeuronGroup(nn.Module):
 
 
     def reset(self):
-        cfg = self.group_cfg
+        cfg = self.array_cfg
         # Init 's' and 'r' — fan-in is always self.I; these init functions
         # sample each element i.i.d. from a distribution that depends only on
         # the passed `dim`, so applying them to the stacked K-neuron tensors is
@@ -279,8 +279,8 @@ class MinMaxNeuronGroup(nn.Module):
             if self.r.bias is not None:
                 nn.init.zeros_(self.r.bias)
         # Init 'o' — dim = number of state coordinates summed at the layer
-        # (default: this group's own D), so wang_init_'s residual-stream
-        # scaling holds for any state size and any split across groups.
+        # (default: this array's own D), so wang_init_'s residual-stream
+        # scaling holds for any state size and any split across arrays.
         state_size = cfg._state_size_in_layer if cfg._state_size_in_layer is not None else self.D
         wang_init_(self.o.weight, dim=state_size, num_blocks=cfg._num_blocks)
         if self.o.bias is not None:
@@ -342,7 +342,7 @@ class MinMaxNeuronGroup(nn.Module):
         r = self.r(u)                         # (B,T,K·d·d)
 
         compute_dtype = s.dtype
-        region, rec_dtype = _recurrence_region(self.group_cfg.recurrence_dtype, u.device)
+        region, rec_dtype = _recurrence_region(self.array_cfg.recurrence_dtype, u.device)
         with region:
             if rec_dtype is not None:
                 r, s, x0 = r.to(rec_dtype), s.to(rec_dtype), x0.to(rec_dtype)
@@ -355,7 +355,7 @@ class MinMaxNeuronGroup(nn.Module):
         x_latest = x_post[:, -1, :]           # (B,D) — carried state (recurrence dtype if pinned)
         if rec_dtype is not None:
             x_post = x_post.to(compute_dtype)
-        if self.group_cfg.output_gate:
+        if self.array_cfg.output_gate:
             x_post = x_post * torch.sigmoid(self.o_g(u))
         output = self.o(x_post)               # (B,T,I)
 
@@ -363,17 +363,17 @@ class MinMaxNeuronGroup(nn.Module):
 
 
 # ======================================================================
-# MinMax Neuron — the 0.3.0 API: a group of d_state scalar-state neurons
+# MinMax Neuron — the 0.3.0 API: an array of d_state scalar-state neurons
 # ======================================================================
 
 @dataclass(frozen=True)
 class MinMaxNeuronConfig:
     """
     Configuration for a MinMax Neuron as in 0.3.0: `d_state` scalar-state
-    neurons (equivalently, MinMaxNeuronGroupConfig(d_state=1,
+    neurons (equivalently, MinMaxNeuronArrayConfig(d_state=1,
     num_neurons=d_state)).
 
-    Fields are those of MinMaxNeuronGroupConfig, with `d_state` here meaning
+    Fields are those of MinMaxNeuronArrayConfig, with `d_state` here meaning
     the total state dimension, i.e. the number of scalar-state neurons. See
     there for their description.
     """
@@ -392,8 +392,8 @@ class MinMaxNeuronConfig:
     def __post_init__(self):
         _check_recurrence_dtype(self.recurrence_dtype)
 
-    def to_group_config(self) -> MinMaxNeuronGroupConfig:
-        return MinMaxNeuronGroupConfig(
+    def to_array_config(self) -> MinMaxNeuronArrayConfig:
+        return MinMaxNeuronArrayConfig(
             _num_blocks          = self._num_blocks,
             d_model              = self.d_model,
             d_state              = 1,
@@ -407,20 +407,20 @@ class MinMaxNeuronConfig:
         )
 
 
-class MinMaxNeuron(MinMaxNeuronGroup):
+class MinMaxNeuron(MinMaxNeuronArray):
     """
-    MinMax Neuron as in 0.3.0: a MinMaxNeuronGroup of `cfg.d_state`
+    MinMax Neuron as in 0.3.0: a MinMaxNeuronArray of `cfg.d_state`
     scalar-state neurons, updating x_t ∈ R^N (N = cfg.d_state) element-wise:
 
         x_t = max(min(r_t, x_{t-1}), s_t)
 
     Same parameters (s, r, o, o_g, _initial_state), shapes, initialisation and
     computation as in 0.3.0. `cfg` is the MinMaxNeuronConfig it was built
-    from; `group_cfg` the equivalent MinMaxNeuronGroupConfig.
+    from; `array_cfg` the equivalent MinMaxNeuronArrayConfig.
     """
 
     def __init__(self, cfg: MinMaxNeuronConfig):
         nn.Module.__init__(self)
         self.cfg       = cfg
-        self.group_cfg = cfg.to_group_config()
+        self.array_cfg = cfg.to_array_config()
         self._build()
