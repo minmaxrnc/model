@@ -21,14 +21,17 @@ A parallelisable sequence model based on a novel form of recurrence —
   other forms of recurrence such as the ones employed in Linear RNNs, where changes in state values
   can add up over time in an unbounded manner).
 
-- **Linear-cost parallelism.**
+- **Efficient parallel and recurrent evaluation.**
   In addition to recurrence, MinMax RNCs admit *parallel scan* as an evaluation strategy, 
   with the possibility of combining the two strategies.
   
   *Parallel training.* All states across a sequence of length <em>T</em> can be computed simultaneously
     in depth <em>O</em>(log <em>T</em>) and work <em>O</em>(<em>T</em>) with no sequential bottleneck — or, to control memory
     usage over long sequences, they can be computed in chunks of <em>k</em> steps using recurrence across
-    chunks.  
+    chunks (`unroll_steps = k`).
+    All strategies give identical results; see
+    [Parallel computation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md#parallel-computation-via-prefix-scan) for their
+    computational cost.
 
   *Efficient inference.* Recurrence enables inference with per-token compute and memory
     usage that is independent of the sequence/context length (fixed-size state, no growing cache), 
@@ -38,27 +41,23 @@ A parallelisable sequence model based on a novel form of recurrence —
   no matter how many steps back they are, and 
   so MinMax RNCs can learn *arbitrarily-long range dependencies*. 
 
+
 ## Measured Performance
 
-- **Parallel, recurrent, or anything in between.** Train in parallel over the whole sequence with a
-  parallel scan (depth <em>O</em>(log <em>T</em>)); generate step by step with constant compute and memory per
-  token; or scan chunks of <em>k</em> steps with recurrence across chunks (`unroll_steps = k`). All give
-  identical results; see [Parallel computation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md#parallel-computation-via-prefix-scan)
-  for the costs.
-
-- **Ahead of state-of-the-art recurrent models on long sequences.** On synthetic benchmarks of
-  long-horizon memory, sequential pattern matching and recall, trained on sequences of length up to
-  512 and evaluated up to 1M, MinMax RNCs keep perfect accuracy, whereas Mamba, mLSTM, xLSTM,
-  DeltaNet and sLSTM lose accuracy as the sequences grow. On the word problems of the symmetric
-  groups <em>S</em><sub>3</sub> and <em>S</em><sub>4</sub>, a single layer is perfectly accurate on sequences of length 1M.
+- **Ahead of SOTA recurrent models on long sequences.** On synthetic benchmarks focusing on testing
+  long-term memory, sequential pattern matching, and recall capabilities, 
+  MinMax RNCs achieve perfect validation accuracy 
+  when trained on sequences of length up to 512 tokens, and retain the same accuracy on sequences of
+  over 1M tokens, in contrast, Mamba, mLSTM, xLSTM, DeltaNet, and sLSTM lose accuracy as the
+  sequences grow and eventually drop to random-guess accuracy. 
+  On the word problems of the symmetric groups <em>S</em><sub>3</sub> and <em>S</em><sub>4</sub> —
+  that are beyond the above benchmarks in terms of the required formal expressivity —
+  MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequence of over 
+  1M tokens, 
+  in contrast with DeltaProduct (one of the few models having the required expressivity)
+  that loses accuracy al as the sequences grow eventually drops to random-guess accuracy. 
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss (3.12) as GPT-2 of 124M parameters.
-
-- **Expressively powerful.** Scalar-state neurons capture all star-free languages; neurons of larger
-  state dimension, up to all regular languages.
-
-- **Memory that does not fade.** Models trained on short sequences have been evaluated without
-  loss of accuracy on sequences of over a million tokens.
 
 ## Installation
 

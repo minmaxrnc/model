@@ -5,7 +5,7 @@
 
 ---
 
-A parallelisable sequence model based on a novel form of recurrence — 
+A parallelisable sequence model, based a novel form of recurrence — 
 *truly for long-sequence processing.* 
 
 
@@ -25,7 +25,7 @@ A parallelisable sequence model based on a novel form of recurrence —
   with the possibility of combining the two strategies.
   
   *Parallel training.* All states across a sequence of length $`T`$ can be computed simultaneously
-    in depth $`O(\log T)`$ and work $`O(T)`$ with no sequential bottleneck — or, to control memory
+    in depth $`O(\log T)`$ and work $`O(T \cdot \log T)`$ with no sequential bottleneck — or, to control memory
     usage over long sequences, they can be computed in chunks of $`k`$ steps using recurrence across
     chunks (`unroll_steps = k`).
     All strategies give identical results; see
@@ -43,18 +43,18 @@ A parallelisable sequence model based on a novel form of recurrence —
 
 ## Measured Performance
 
-- **Ahead of SOTA recurrent models on long sequences.** On synthetic benchmarks focusing on testing
+- **Ahead of SOTA recurrent models on long sequences.** On synthetic benchmarks testing
   long-term memory, sequential pattern matching, and recall capabilities, 
   MinMax RNCs achieve perfect validation accuracy 
   when trained on sequences of length up to 512 tokens, and retain the same accuracy on sequences of
-  over 1M tokens, in contrast, Mamba, mLSTM, xLSTM, DeltaNet, and sLSTM lose accuracy as the
-  sequences grow and eventually drop to random-guess accuracy. 
-  On the word problems of the symmetric groups $`S_3`$ and $`S_4`$ —
-  that are beyond the above benchmarks in terms of the required formal expressivity —
-  MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequence of over 
+  over 1M tokens; in contrast, the SOTA recurrent models Mamba, mLSTM, xLSTM, DeltaNet, and sLSTM
+  lose accuracy as the sequences grow and eventually drop to random-guess accuracy. 
+  On the word problems of the symmetric groups $`S_3`$ and $`S_4`$ 
+  (that formally require a higher expressivity compared to the above benchmarks)
+  MinMax RNCs again achieve perfect accuracy with seamless generalisation on sequences of over 
   1M tokens, 
-  in contrast with DeltaProduct (one of the few models having the required expressivity)
-  that loses accuracy al as the sequences grow eventually drops to random-guess accuracy. 
+  in contrast with DeltaProduct — one of the few models having the required expressivity —
+  that loses accuracy as the sequences grow eventually drops to random-guess accuracy. 
 - **Competitive at scale.** On OpenWebText, a MinMax RNC of 112M parameters reaches the same
   validation loss (3.12) as GPT-2 of 124M parameters.
 
@@ -194,14 +194,14 @@ x_t = (R_t \otimes x_{t-1}) \oplus s_t
 where the matrix $`R_t \in ℝ^{d \times d}`$ and the vector $`s_t \in ℝ^d`$ are affine projections
 of the current input. It is an ordinary affine recurrence in which addition and multiplication are
 replaced by max and min, i.e. $`\oplus`$ and $`\otimes`$ are the matrix operations of the
-(max, min) algebra. For scalar states ($`d = 1`$) it reads
-$`x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)`$: the reset $`r_t`$ caps the previous
-state and the set $`s_t`$ raises it. Every state value is selected from the previous state or the
-current inputs, so values can be held exactly for any number of steps, and states stay bounded.
+MinMax algebra. For scalar states ($`d = 1`$) it reads
+$`x_t = \mathrm{max}(\mathrm{min}(r_t, x_{t-1}), s_t)`$: the reset signal $`r_t`$ caps the previous
+state and the set signal $`s_t`$ raises it. Every state value is selected from the previous state or
+the current inputs, so values can be held exactly for any number of steps, and states stay bounded.
 Compositions of MinMax recurrence maps are again MinMax recurrence maps, which is what allows the
 parallel scan.
 
-**MinMax RNC.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
+**MinMax RNCs.** A MinMax RNC is a stack of layers on a residual stream. Each layer has three
 sub-modules, each applied to a normalised input (pre-norm): a short **convolution** over the
 current and the previous token, a **feed-forward network** for feature mixing, and **groups of
 MinMax neurons**, which receive the output of the other two. Only the neurons' output, summed over
