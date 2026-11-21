@@ -11,13 +11,13 @@ FeedForward
 
 GatedFeedForward
     Gated variant: proj_up outputs a fused [gate | value] tensor; the gate
-    branch passes through an activation, then gate ⊙ value is projected down.
+    branch passes through an activation, then gate * value (element-wise) is projected down.
 
-        output = W_down · (σ(gate) ⊙ value)
+        output = W_down · (φ(gate) * value) + b_down       (φ = act_fn, · matrix product, * element-wise)
 
-    With σ = ReLU  → ReGLU
-    With σ = GELU  → GeGLU
-    With σ = SiLU  → SwiGLU
+    With φ = ReLU  → ReGLU
+    With φ = GELU  → GeGLU
+    With φ = SiLU  → SwiGLU
 
     Dauphin et al. (2017). "Language Modeling with Gated Convolutional
     Networks." ICML.  https://arxiv.org/abs/1612.08083

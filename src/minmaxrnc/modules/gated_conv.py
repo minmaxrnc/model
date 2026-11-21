@@ -36,7 +36,7 @@ class GatedConv(nn.Module):
 
         out_t = σ(g_d) · u_{t-1,d} + (1 − σ(g_d)) · u_{t,d}
 
-    where g ∈ R^D is a learned parameter vector.  State is u_{t-1}.
+    where g ∈ R^{d_model} is a learned parameter vector.  State is u_{t-1}.
     """
 
     def __init__(self, cfg):

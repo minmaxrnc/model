@@ -1,20 +1,70 @@
 # SPDX-FileCopyrightText: 2026 Alessandro Ronca
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+import contextlib
+
 import torch
 import torch.nn as nn
 
-from typing      import Optional, Literal, Union
+from typing      import Optional, Literal, Union, Tuple
 from dataclasses import dataclass, replace
 
 from .minmax_layer              import MinMaxLayer, MinMaxLayerConfig, NormType
-from .minmax_neuron             import MinMaxNeuronConfig, SRInitType
+from .minmax_neuron             import (
+    MinMaxNeuronConfig, MinMaxNeuronArrayConfig, SRInitType, RecurrenceDtype, RECURRENCE_DTYPES,
+)
 from .modules.feedforward       import FeedForwardConfig, FFType, InitType, create_feedforward
 from .modules.basic_conv        import BasicConvConfig
 from .modules.gated_conv        import GatedConvConfig
 
 
 ConvType = Literal['basic', 'gated']
+
+AmpDtype = Literal['bf16', 'fp16']
+AMP_DTYPES = ('bf16', 'fp16')
+_AMP_TORCH_DTYPES = {'bf16': torch.bfloat16, 'fp16': torch.float16}
+
+
+@dataclass(frozen=True)
+class NeuronArray:
+    """
+    One array of MinMax neurons in every layer (new in 0.4.0): `num_neurons`
+    neurons, each with state dimension `d_state`.
+
+    Entries of MinMaxRNCConfig.neurons. Each layer gets one MinMaxNeuronArray
+    per entry. d_state = 1 gives scalar-state neurons (element-wise
+    recurrence); d_state > 1 gives neurons whose state coordinates interact
+    through a d_state × d_state matrix R_t (see MinMaxNeuronArrayConfig).
+
+    MinMaxRNCConfig also accepts a plain tuple/list
+    (d_state[, num_neurons]) in place of a NeuronArray, e.g.
+    ``neurons=[(3, 16)]``.
+    """
+
+    d_state:     int
+    num_neurons: int = 1
+
+    def __post_init__(self):
+        if self.d_state <= 0:
+            raise ValueError(f"NeuronArray.d_state must be > 0, got {self.d_state}")
+        if self.num_neurons <= 0:
+            raise ValueError(f"NeuronArray.num_neurons must be > 0, got {self.num_neurons}")
+
+    @classmethod
+    def coerce(cls, value) -> 'NeuronArray':
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, (tuple, list)) and 1 <= len(value) <= 2:
+            return cls(*value)
+        raise TypeError(
+            "Each neurons entry must be a NeuronArray or a tuple/list "
+            f"(d_state[, num_neurons]), got {value!r}"
+        )
+
+    @property
+    def state_size(self) -> int:
+        """Number of state coordinates: num_neurons · d_state."""
+        return self.num_neurons * self.d_state
 
 
 @dataclass(frozen=True)
@@ -31,9 +81,27 @@ class MinMaxRNCConfig:
         dimension.
     n_layers : int
         Number of stacked MinMaxLayers.
+    scalar_neurons : int
+        New in 0.4.0, default 0. Number of scalar-state MinMax neurons in each
+        layer (equivalently, their total state dimension) — shorthand for the
+        neuron array NeuronArray(d_state=1, num_neurons=scalar_neurons).
+        Independent of d_model; larger values increase memory capacity at
+        linear parameter cost.
     d_state : int
-        Hidden-state dimension of each MinMax Neuron.  Independent of d_model;
-        larger values increase memory capacity at linear parameter cost.
+        Legacy name of `scalar_neurons` (the 0.3.0 field, kept for backward
+        compatibility, including positional construction): d_state=N builds
+        exactly the same model as scalar_neurons=N. Set at most one of the
+        two; the number in use is `num_scalar_neurons`. Every layer needs at
+        least one neuron: scalar_neurons (or d_state) > 0 and/or a non-empty
+        `neurons`.
+    neurons : tuple[NeuronArray | tuple, ...]
+        New in 0.4.0, default () — none. Further arrays of MinMax neurons in
+        every layer, each entry a NeuronArray or a tuple
+        (d_state[, num_neurons]): num_neurons
+        neurons of state dimension d_state each. All neuron outputs of a
+        layer are summed. Scalar-state arrays (d_state=1) cost as much as
+        `scalar_neurons`; for d_state > 1 the scan's work scales as
+        d_state³ per step, so keep it small and scale with num_neurons.
 
     Normalisation
     -------------
@@ -72,6 +140,27 @@ class MinMaxRNCConfig:
         If True, the neuron's initial hidden state x_0 is a learned parameter.
     neuron_dropout : float
         Dropout probability applied to the neuron input.
+    recurrence_dtype : None | 'fp32' | 'bf16' | 'fp16'
+        New in 0.4.0. Dtype of every neuron's MinMax recurrence: R_t, s_t, the
+        states (including the carried state) and their gradients. None
+        (default) — no casting, exactly as in 0.3.0. 'fp32' / 'bf16' / 'fp16'
+        — pinned: the recurrence always runs in that dtype with autocast
+        disabled, whatever the surrounding precision. See
+        minmax_neuron.RecurrenceDtype.
+
+    Mixed precision
+    ---------------
+    amp_dtype : None | 'bf16' | 'fp16'
+        New in 0.4.0. If set, forward() runs under
+        torch.autocast(device, dtype=amp_dtype) — model-level automatic
+        mixed precision. None (default) — the model does not touch autocast,
+        exactly as in 0.3.0, so an autocast context opened by the caller
+        still applies. When set, it overrides the dtype of any outer autocast
+        inside the model. fp16 training additionally needs the caller's
+        torch.amp.GradScaler. Combine with recurrence_dtype to choose the
+        recurrence's precision independently, e.g. amp_dtype='bf16',
+        recurrence_dtype='bf16'; see docs/precision.md for the recommended
+        combinations.
 
     Convolution
     -----------
@@ -96,7 +185,7 @@ class MinMaxRNCConfig:
     # Core architecture
     d_model:  int
     n_layers: int
-    d_state:  int
+    d_state:  int = 0
 
     # Normalisation (within layers and post-layers)
     norm:            NormType = 'layernorm'
@@ -125,16 +214,98 @@ class MinMaxRNCConfig:
     # Post-layers
     use_postlayers_ffn: bool = False
 
+    # --- new in 0.4.0 (appended, so positional construction is unchanged) ---
+    scalar_neurons:  int                     = 0
+    neurons:         Tuple[NeuronArray, ...] = ()
+    recurrence_dtype: RecurrenceDtype   = None
+    amp_dtype:       Optional[AmpDtype] = None
+
+    def __post_init__(self):
+        arrays = tuple(NeuronArray.coerce(arr) for arr in self.neurons)
+        object.__setattr__(self, 'neurons', arrays)
+        if self.scalar_neurons < 0:
+            raise ValueError(f"scalar_neurons must be >= 0, got {self.scalar_neurons}")
+        if self.d_state < 0:
+            raise ValueError(f"d_state must be >= 0, got {self.d_state}")
+        if self.scalar_neurons > 0 and self.d_state > 0:
+            raise ValueError(
+                f"Set either scalar_neurons or its legacy name d_state, not both "
+                f"(got scalar_neurons={self.scalar_neurons}, d_state={self.d_state})."
+            )
+        if self.num_scalar_neurons == 0 and len(arrays) == 0:
+            raise ValueError(
+                "MinMaxRNCConfig requires at least one neuron per layer: set "
+                "scalar_neurons > 0 and/or a non-empty `neurons`."
+            )
+        if self.recurrence_dtype not in RECURRENCE_DTYPES:
+            raise ValueError(
+                f"Unknown recurrence_dtype {self.recurrence_dtype!r}. Valid values: "
+                f"{', '.join(map(repr, RECURRENCE_DTYPES))}."
+            )
+        if self.amp_dtype is not None and self.amp_dtype not in AMP_DTYPES:
+            raise ValueError(
+                f"Unknown amp_dtype {self.amp_dtype!r}. Valid values: None, "
+                f"{', '.join(map(repr, AMP_DTYPES))}."
+            )
+
+    @property
+    def num_scalar_neurons(self) -> int:
+        """Scalar-state neurons per layer, set by scalar_neurons or its legacy name d_state."""
+        return self.scalar_neurons or self.d_state
+
+    @property
+    def neuron_arrays(self) -> Tuple[NeuronArray, ...]:
+        """All neuron arrays of each layer: the scalar_neurons shorthand (if > 0) first, then `neurons`."""
+        n = self.num_scalar_neurons
+        shorthand = (NeuronArray(d_state=1, num_neurons=n),) if n > 0 else ()
+        return shorthand + self.neurons
+
+    @property
+    def num_neurons_per_layer(self) -> int:
+        """Number of MinMax neurons in each layer."""
+        return sum(arr.num_neurons for arr in self.neuron_arrays)
+
+    @property
+    def state_size_per_layer(self) -> int:
+        """Number of state coordinates in each layer: Σ num_neurons · d_state."""
+        return sum(arr.state_size for arr in self.neuron_arrays)
+
     @property
     def layer_cfg(self) -> MinMaxLayerConfig:
-        neuron_cfg = MinMaxNeuronConfig(
-            _num_blocks = self.n_layers,
-            d_model     = self.d_model,
-            d_state     = self.d_state,
-            dropout     = self.neuron_dropout,
-            train_init  = self.train_init,
-            output_gate = self.output_gate,
-            s_r_init    = self.s_r_init,
+        # Every array's output projection is scaled by the layer's total state
+        # size, so the layer's summed contribution stays O(1) however the
+        # state is split (for a scalar-neurons-only layer: exactly as in 0.3.0).
+        # The scalar_neurons shorthand array is the 0.3.0 MinMax Neuron, so
+        # scalar_neurons=N and d_state=N give the same parameters, names and
+        # computation.
+        state_size = self.state_size_per_layer
+        neuron_cfg = None
+        if self.num_scalar_neurons > 0:
+            neuron_cfg = MinMaxNeuronConfig(
+                _num_blocks          = self.n_layers,
+                d_model              = self.d_model,
+                d_state              = self.num_scalar_neurons,
+                dropout              = self.neuron_dropout,
+                train_init           = self.train_init,
+                output_gate          = self.output_gate,
+                s_r_init             = self.s_r_init,
+                recurrence_dtype     = self.recurrence_dtype,
+                _state_size_in_layer = state_size,
+            )
+        array_cfgs = tuple(
+            MinMaxNeuronArrayConfig(
+                _num_blocks          = self.n_layers,
+                d_model              = self.d_model,
+                d_state              = arr.d_state,
+                num_neurons          = arr.num_neurons,
+                dropout              = self.neuron_dropout,
+                train_init           = self.train_init,
+                output_gate          = self.output_gate,
+                s_r_init             = self.s_r_init,
+                recurrence_dtype     = self.recurrence_dtype,
+                _state_size_in_layer = state_size,
+            )
+            for arr in self.neurons
         )
         if self.conv_type == 'basic':
             conv_cfg = BasicConvConfig(embedding_dim=self.d_model)
@@ -160,6 +331,7 @@ class MinMaxRNCConfig:
             feedforward      = ffn_cfg,
             norm             = self.norm,
             first_in_dropout = self.prelayers_dropout,
+            neuron_arrays    = array_cfgs,
         )
 
     # ------------------------------------------------------------------
@@ -184,8 +356,8 @@ class MinMaxRNC(nn.Module):
     MinMax Recurrent Neural Cascade — the backbone sequence model.
 
     Stacks ``cfg.n_layers`` MinMaxLayers, each containing a short-range
-    convolution, a feed-forward network, and a MinMax Neuron.  All three
-    sub-layers use pre-norm and residual connections.
+    convolution, a feed-forward network, and arrays of MinMax neurons.  All three sub-layers use pre-norm and
+    residual connections.
 
     Inputs
     ------
@@ -244,8 +416,15 @@ class MinMaxRNC(nn.Module):
     def initial_state(self):
         return [layer.initial_state for layer in self.layers]
 
+    def _amp_ctx(self, device_type: str):
+        """Model-level autocast per cfg.amp_dtype; a no-op when it is None."""
+        amp_dtype = self.__cfg.amp_dtype
+        if amp_dtype is None:
+            return contextlib.nullcontext()
+        return torch.autocast(device_type=device_type, dtype=_AMP_TORCH_DTYPES[amp_dtype])
+
     def _parallel_forward(self, u: torch.Tensor, state):
-        """u: [B, T, D] — returns output [B, T, D] and updated state."""
+        """u: [B, T, d_model] — returns output [B, T, d_model] and updated state."""
         updated_state = []
         y = u
         for layer, layer_state in zip(self.layers, state):
@@ -265,10 +444,11 @@ class MinMaxRNC(nn.Module):
             state = self.initial_state
 
         y_chunks = []
-        for u_chunk in u.split(unroll_steps, dim=1):
-            y_chunk, state = self._parallel_forward(u_chunk, state)
-            y_chunks.append(y_chunk)
-        y = torch.cat(y_chunks, dim=1)
+        with self._amp_ctx(u.device.type):
+            for u_chunk in u.split(unroll_steps, dim=1):
+                y_chunk, state = self._parallel_forward(u_chunk, state)
+                y_chunks.append(y_chunk)
+            y = torch.cat(y_chunks, dim=1)
 
         if return_state:
             return y, state

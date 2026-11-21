@@ -7,11 +7,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "minmaxrnc"
-version = "0.3.0"
+version = "0.4.0"
 description = "MinMax Recurrent Neural Cascades"
-readme = "README.md"
+readme = {file = "README.pypi.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
 authors = [
   { name = "Alessandro Ronca", email = "alessandro.ronca@iris-ai.org" }
 ]
@@ -25,6 +26,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
   "torch>=2.0",
@@ -34,7 +36,7 @@ dependencies = [
 Homepage    = "https://github.com/minmaxrnc/model"
 Repository  = "https://github.com/minmaxrnc/model"
 Issues      = "https://github.com/minmaxrnc/model/issues"
-Documentation = "https://github.com/minmaxrnc/model/blob/main/docs/model.md"
+Documentation = "https://github.com/minmaxrnc/model/tree/main/docs"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -27,18 +27,18 @@ class MinMaxRNCLMConfig:
         embedding matrix, halving those parameters and acting as a regulariser.
     output_gate : bool
         If True (default), each neuron's output is element-wise multiplied by
-        σ(W_g u) before the final projection, so the gate starts near 0.5
+        σ(W_g · u + b_g) before the final projection, so the gate starts near 0.5
         (fully open) and gradient flows freely from the start.
-        Overrides backbone.output_gate when set.
+        Always replaces backbone.output_gate: set it here, not on the backbone.
     conv_type : 'basic' | 'gated'
         Short-range convolution variant.  'basic' (default) — learned linear
         mixing of the previous and current token.  'gated' — adds a learned
         scalar gate interpolating between them.
-        Overrides backbone.conv_type when set.
+        Always replaces backbone.conv_type: set it here, not on the backbone.
     ffn_dropout : float
         Dropout applied inside the FFN of every layer except the first, which
         uses backbone.prelayers_dropout (default 0.0) instead.
-        Overrides backbone.ffn_dropout when set.
+        Always replaces backbone.ffn_dropout: set it here, not on the backbone.
     """
 
     backbone:     MinMaxRNCConfig
@@ -97,10 +97,13 @@ class MinMaxRNC_LM(MinMaxRNC):
             small_init_init_(self.lm_head.weight, dim=d_model)
 
     def forward(self, tokens: torch.Tensor, unroll_steps: int, state=None, return_state: bool = False):
-        y, state = super().forward(
-            self.token_emb(tokens), unroll_steps, state=state, return_state=True
-        )
-        logits = self.lm_head(self.head_drop(y))
+        # Same model-level autocast as the backbone (no-op when amp_dtype is
+        # None), extended over the embedding and LM head; nesting is harmless.
+        with self._amp_ctx(tokens.device.type):
+            y, state = super().forward(
+                self.token_emb(tokens), unroll_steps, state=state, return_state=True
+            )
+            logits = self.lm_head(self.head_drop(y))
         if return_state:
             return logits, state
         return logits

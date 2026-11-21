@@ -22,7 +22,7 @@ class BasicConvConfig:
     embedding_dim : int
         Token / feature dimension.
     init : 'default' | 'scaled'
-        Weight initialisation; 'scaled' uses small_init_.
+        Weight initialisation; 'scaled' uses small_init_init_.
     """
 
     embedding_dim:      int
@@ -61,7 +61,7 @@ class BasicConv(nn.Module):
 
 
     def forward(self, u: torch.Tensor, state: torch.Tensor):
-        assert u.dim() == 3, f"Expected input 'u' of shape (B,T,D)"
+        assert u.dim() == 3, f"Expected input 'u' of shape (B, T, d_model)"
 
         B, T, _ = u.shape
 
