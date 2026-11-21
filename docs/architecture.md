@@ -83,6 +83,13 @@ neuron. For $`d > 1`$ each scan step composes $`d \times d`$ matrices: the work 
 $`O(K \cdot T \log T \cdot d^3)`$, and the scan materialises a `(B·K, T, d, d, d)` intermediate.
 Keep $`d`$ small (≈ 2–8), and scale with `num_neurons` and more groups instead.
 
+**Known issue: `torch.compile`.** With PyTorch 2.14.1 on CUDA, the default Inductor backend
+fails to compile groups with $`d > 1`$ in fp32 for inference (`torch.no_grad()` or
+`torch.inference_mode()`), with `InductorError: TypeError: Expected a number but got Mul`.
+Compiled training, bf16 AMP and models with scalar-state neurons only are unaffected.
+Workarounds: evaluate with the uncompiled model, compile with `backend="aot_eager"` (whose outputs
+are identical to eager), or run under bf16 AMP.
+
 **Evidence so far.** On group state-tracking benchmarks, neurons with state dimension 3 learn the
 symmetric group $`S_3`$ (tracking the permutation of 3 elements) and generalise to much longer
 sequences than seen in training, but results vary across seeds; $`S_4`$ is solved only on some

@@ -78,3 +78,14 @@ sequence of PyTorch operations as in 0.3.0, and 0.3.0 checkpoints load with
   models with `neurons` groups, and has no `'neuron'` entry without scalar
   neurons; models with only scalar neurons keep exactly the 0.3.0 structure.
 - Invalid `recurrence_dtype` / `amp_dtype` values raise `ValueError`.
+
+### Known issues
+
+- `torch.compile` with the default Inductor backend fails for models with
+  neuron groups of state dimension d > 1 in fp32 when the compiled model is
+  run for inference (`torch.no_grad()` / `torch.inference_mode()`), with
+  `InductorError: TypeError: Expected a number but got Mul` (PyTorch 2.14.1
+  on CUDA). Compiled training, bf16 AMP and scalar-state-only models are
+  unaffected. Workarounds: evaluate with the uncompiled model, compile with
+  `backend="aot_eager"`, or run under bf16 AMP. See
+  [Architecture](docs/architecture.md#minmax-neuron-groups).

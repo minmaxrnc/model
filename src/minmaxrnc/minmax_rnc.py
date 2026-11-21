@@ -159,7 +159,8 @@ class MinMaxRNCConfig:
         inside the model. fp16 training additionally needs the caller's
         torch.amp.GradScaler. Combine with recurrence_dtype to choose the
         recurrence's precision independently, e.g. amp_dtype='bf16',
-        recurrence_dtype='fp32'.
+        recurrence_dtype='bf16'; see docs/precision.md for the recommended
+        combinations.
 
     Convolution
     -----------

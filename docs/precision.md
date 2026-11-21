@@ -69,15 +69,41 @@ min/max *selections*: every state value it produces is one of its input values
 
 Under an outer bf16 autocast, with `None` the scan composes the prefixes in
 bf16 while the fp32 initial state promotes the final application to fp32 —
-mixed and implicit. Pinning makes the choice explicit:
+mixed and implicit. Pinning makes the choice explicit.
+
+**Recommended combinations.**
 
 | Recipe | `amp_dtype` | `recurrence_dtype` | Forward | Recurrence gradient sums | Recurrence memory |
 |---|---|---|---|---|---|
 | Full precision (default) | `None` | `None` | fp32 | fp32 | 4 bytes |
-| bf16 AMP, fp32 recurrence | `'bf16'` | `'fp32'` | = bf16 recurrence | fp32 | 4 bytes |
-| Fully bf16, recurrence included | `'bf16'` | `'bf16'` | bf16 | bf16 | 2 bytes |
-| fp32 model, bf16 recurrence | `None` | `'bf16'` | the recurrence rounds its inputs | bf16 | 2 bytes |
-| bf16 AMP, fp16 recurrence (untested) | `'bf16'` | `'fp16'` | = bf16 recurrence, within fp16's range | fp16 (finer than bf16; overflow above 65504) | 2 bytes |
+| bf16 AMP | `'bf16'` | `'bf16'` (or `None`) | bf16 | bf16 | 2 bytes |
+| fp16 AMP | `'fp16'` | `'fp16'` (or `None`) | fp16 | fp16 | 2 bytes |
+| fp32 model, 2-byte recurrence | `None` | `'fp16'` | the recurrence rounds its inputs | fp16 (overflow above 65504) | 2 bytes |
 
-The effect of the more accurate gradient sums on training has not been measured
-yet; compare `'bf16'` against `'fp32'` on your task before relying on it.
+**Combinations to avoid.**
+
+| Combination | Why |
+|---|---|
+| `amp_dtype='bf16'`, `recurrence_dtype='fp32'` | No measurable gain: the gradient error is that of bf16 AMP, and peak memory was ~1.7× higher in our measurements |
+| `amp_dtype='bf16'`, `recurrence_dtype='fp16'` | No better than a bf16 recurrence |
+| `amp_dtype=None`, `recurrence_dtype='bf16'` | 3–4× less accurate than `'fp16'`, at the same memory |
+| `amp_dtype='fp16'`, `recurrence_dtype='bf16'` | ~10× less accurate than `'fp16'`, at the same memory |
+
+**Measured gradient accuracy.** Relative error of the gradients of the $`s`$/$`r`$
+projections against full fp32, on sequences of length 8192 (NVIDIA A100 and L4,
+mean over architectures with scalar-state neurons, neuron groups and both; the
+first figure is for inputs that make neurons hold values for long, the second for
+random inputs). The share due to the recurrence itself is the error against the
+run with the same `amp_dtype` and an fp32 recurrence, whose forward pass is
+identical.
+
+| `amp_dtype` | `recurrence_dtype` | Total gradient error | Share due to the recurrence |
+|---|---|---|---|
+| `None` | `'bf16'` | 5.8% / 4.7% | all of it |
+| `None` | `'fp16'` | 1.5% / 1.7% | all of it |
+| `'bf16'` | `'bf16'`, `None`, `'fp16'` or `'fp32'` | 10.3% / 8.9% | ≤ 0.6% |
+| `'fp16'` | `'fp16'` or `None` | 4.3% / 3.2% | 0.4% / 0.3% |
+| `'fp16'` | `'bf16'` | 5.9% / 4.9% | 5.8% / 4.6% |
+
+Under bf16 AMP, almost all of the gradient error comes from the bf16 forward pass
+outside the recurrence, which is why pinning the recurrence to fp32 does not help.
