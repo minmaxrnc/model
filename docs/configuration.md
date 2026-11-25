@@ -11,7 +11,7 @@ SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 This page lists every field of [`MinMaxRNCConfig`](../src/minmaxrnc/minmax_rnc.py) and
 [`MinMaxRNCLMConfig`](../src/minmaxrnc/minmax_rnc_lm.py), the preset
-configurations, and example configurations used in experiments.
+configurations, and example configurations.
 
 All architecture hyperparameters are specified through a single flat
 `MinMaxRNCConfig` dataclass.
@@ -78,7 +78,9 @@ its default.
   also set raises a `ValueError`).
 - **Language model.** [`MinMaxRNC_LM`](../src/minmaxrnc/minmax_rnc_lm.py) takes `conv_type`,
   `output_gate` and `ffn_dropout` from [`MinMaxRNCLMConfig`](../src/minmaxrnc/minmax_rnc_lm.py), replacing the backbone's values (see
-  [MinMaxRNCLMConfig](#minmaxrnclmconfig)); set them there.
+  [MinMaxRNCLMConfig](#minmaxrnclmconfig)); set them there. Since 0.4.1, a value set on the
+  backbone that would be ignored this way (a non-default value that differs from the one of
+  `MinMaxRNCLMConfig`) raises a `UserWarning`.
 
 Parameter counts (the LM with the GPT-2 vocabulary of 50,257 tokens and tied embedding and output
 weights):
@@ -90,71 +92,73 @@ weights):
 | `large` | ~88.6 M | ~125.2 M | ~75.9 M | ~112.5 M |
 
 The gated convolution replaces each layer's `Linear(2·d_model, d_model)` with a per-feature gate,
-hence the smaller counts. `large` with the gated convolution is the 112M language model that
-reaches GPT-2's validation loss on OpenWebText.
+hence the smaller counts.
 
 ## Examples
 
-Configurations used in the experiments reported in the
-[NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) and in the 0.4.0 validation runs. They
-are starting points, not general recommendations: the presets above remain the defaults to start
-from.
+The presets above are the defaults to start from; the examples below show how to set the other
+fields.
 
-### Group-free synthetic benchmarks
+### Scalar-state neurons
 
-Latching, sequences and induction heads, which test long-horizon memory, sequential pattern
-matching and recall. The models are the `small` preset (scalar-state neurons only):
+A language model on the `small` preset, with scalar-state neurons only:
 
 ```python
 from minmaxrnc import MinMaxRNC_LM, MinMaxRNCConfig, MinMaxRNCLMConfig
 
-backbone = MinMaxRNCConfig.small()                 # latching(n), induction heads(n): 2 layers
-backbone = MinMaxRNCConfig.small(n_layers=n + 1)   # sequences(n): n + 1 layers
+backbone = MinMaxRNCConfig.small()                   # 2 layers
+backbone = MinMaxRNCConfig.small(n_layers=4)         # same width, 4 layers
 model = MinMaxRNC_LM(vocab_size, MinMaxRNCLMConfig(backbone=backbone))
 ```
 
-The variants `output_gate=False` and `conv_type='gated'` were also trained, and the one with the
-best validation accuracy was evaluated. Trained on sequences of length up to 512, these models keep
-perfect accuracy on sequences of up to 1M tokens. Training (from the paper): Adam with weight decay
-$`10^{-4}`$, learning rate $`10^{-3}`$ halved every 5 epochs, batch size 64, at most 30 epochs with
-early stopping, automatic mixed precision and `torch.compile`.
-
-### Word problems of the symmetric groups $`S_3`$ and $`S_4`$
-
-These need [neuron arrays](architecture.md#minmax-neuron-arrays) of larger state dimension: a
-neuron with state dimension $`d`$ can track permutations of $`d`$ elements. One layer with 16
-neurons of state dimension 3 for $`S_3`$, and 4 for $`S_4`$, with no scalar-state neurons:
+Variants without the output gate, or with the gated convolution, are set on the LM config (see
+[MinMaxRNCLMConfig](#minmaxrnclmconfig)), and the initialisation of the s and r projections on the
+backbone:
 
 ```python
-from minmaxrnc import MinMaxRNCConfig, NeuronArray
+from dataclasses import replace
 
-s3 = MinMaxRNCConfig(d_model=90, n_layers=1, neurons=[NeuronArray(d_state=3, num_neurons=16)],
-                     s_r_init='asymmetric')
-s4 = MinMaxRNCConfig(d_model=90, n_layers=1, neurons=[NeuronArray(d_state=4, num_neurons=16)],
-                     s_r_init='asymmetric')
+backbone = replace(MinMaxRNCConfig.small(), s_r_init='asymmetric')
+model = MinMaxRNC_LM(vocab_size, MinMaxRNCLMConfig(backbone=backbone,
+                                                   output_gate=False, conv_type='gated'))
 ```
 
-Training settings of the runs behind these results (Adam, cosine schedule, learning rate
-$`10^{-3}`$, three seeds; validation on sequences of length 512):
+### Neuron arrays of larger state dimension
 
-| Task | Model | Training data | Batch size | Epochs | Best validation accuracy, per seed |
-|---|---|---|---|---|---|
-| $`S_3`$ | `s3` | 20k sequences of length 128 | 8 | 30 | 100%, 100%, 36% |
-| $`S_4`$ | `s4` | 200k sequences of length 128 | 64 | 100 | 100%, 26%, 100% |
+[Neuron arrays](architecture.md#minmax-neuron-arrays) of state dimension $`d > 1`$: a neuron with
+state dimension $`d`$ can track permutations of $`d`$ elements. One layer with 16 neurons of state
+dimension 3, and no scalar-state neurons:
 
-The best $`S_3`$ model was 100% accurate on sequences of length 1,024,000. Results depend on the
-seed, and on the batch size: with batch size 64, `s3` did not learn $`S_3`$ on any of three seeds.
-With 2 layers and state dimension 4 (`dataclasses.replace(s4, n_layers=2)`), $`S_3`$ was learned
-on 3 of 3 seeds with batch size 8.
+```python
+from dataclasses import replace
+from minmaxrnc import MinMaxRNCConfig, NeuronArray
 
+cfg = MinMaxRNCConfig(d_model=90, n_layers=1,
+                      neurons=[NeuronArray(d_state=3, num_neurons=16)],
+                      s_r_init='asymmetric')
+cfg2 = replace(cfg, n_layers=2)                                   # two such layers
+cfg4 = replace(cfg, neurons=[NeuronArray(d_state=4, num_neurons=16)])  # state dimension 4
+```
 
-### Language model at GPT-2 scale
+Scalar-state neurons and arrays can be combined in the same layer, e.g.
+`MinMaxRNCConfig(d_model=90, n_layers=2, scalar_neurons=40, neurons=[NeuronArray(3, 16)])`.
 
-The `large` preset with the gated convolution, with the GPT-2 vocabulary (112M parameters):
+### Mixed precision
+
+Model-level bf16 autocast with the recurrence computed in fp16 (see
+[Numerical precision](precision.md)):
+
+```python
+from dataclasses import replace
+from minmaxrnc import MinMaxRNCConfig
+
+cfg = replace(MinMaxRNCConfig.small(), amp_dtype='bf16', recurrence_dtype='fp16')
+```
+
+### Language model with the GPT-2 vocabulary
+
+The `large` preset with the gated convolution and the GPT-2 vocabulary (112M parameters):
 
 ```python
 model = MinMaxRNC_LM(50257, MinMaxRNCLMConfig(backbone=MinMaxRNCConfig.large(), conv_type='gated'))
 ```
-
-Trained on OpenWebText following nanoGPT's GPT-2 recipe, it reaches the validation loss of GPT-2
-124M (3.12).

@@ -152,16 +152,17 @@ neurons ($`d = 1`$) are the cheapest, and larger $`d`$ lets a neuron track riche
 permutations of $`d`$ elements.
 
 ```python
+import torch
 from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronArray
 
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
     scalar_neurons   = 192,                           # 192 scalar-state neurons per layer
-    neurons          = [
-        NeuronArray(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
-        (4, 2),                                       # tuple shorthand: d_state=4, num_neurons=2
-    ],
+    neurons          = [                              # plus two neuron arrays per layer:
+        NeuronArray(d_state=3, num_neurons=16),       #   16 neurons with 3-dimensional state
+        (4, 2),                                       #   2 neurons with 4-dimensional state,
+    ],                                                #   tuple shorthand for NeuronArray(4, 2)
     norm             = 'rmsnorm',
     ffn_type         = 'gated',
     ffn_act_fn       = 'swish',                       # → SwiGLU
@@ -169,6 +170,9 @@ cfg = MinMaxRNCConfig(
     use_postlayers_ffn = True,
 )
 model = MinMaxRNC(cfg)
+
+u = torch.randn(batch_size, seq_len, 768)
+y = model(u, unroll_steps=seq_len)                    # (B, T, 768)
 ```
 
 The neurons of an array are evaluated together, as one batched computation. The cost of a neuron
@@ -253,7 +257,7 @@ See [Mathematical foundations](docs/foundations.md) and [Architecture](docs/arch
   title   = {{MinMax} Recurrent Neural Cascades},
   year    = {2026},
   url     = {https://github.com/minmaxrnc/model},
-  version = {0.4.0},
+  version = {0.4.1},
 }
 ```
 

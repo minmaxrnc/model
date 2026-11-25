@@ -63,33 +63,3 @@ without scalar neurons have no `'neuron'` entry.
 Only for configs 0.3.0 rejected anyway: `d_state` now defaults to 0, so leaving it out raises a
 `ValueError` (instead of a `TypeError`) unless `scalar_neurons` or `neurons` is given; invalid
 `recurrence_dtype`/`amp_dtype` values raise `ValueError`.
-
-## From the matrix-neuron experiment branch
-
-Rename config keys `diagonal_d_state → scalar_neurons` and `d_states → neurons`, turning each
-`(d_state, num_neurons, n_h)` triple into a `(d_state, num_neurons)` pair. Only `n_h = 0` is
-supported (the rank-1-product parametrisation of `n_h > 0`, and with it `normalize_keys`, was
-dropped).
-
-That branch's checkpoints use different parameter names and do not load directly, but they convert
-with a key renaming: `layers.i.neurons.j.*` becomes `layers.i.neuron_arrays.j.*`, and each array's
-`_initial_state` is flattened from shape `(num_neurons, d_state)` to `(num_neurons · d_state,)`:
-
-```python
-import re
-
-def convert_branch_state_dict(sd):
-    out = {}
-    for k, v in sd.items():
-        k = re.sub(r'\.neurons\.(\d+)\.', r'.neuron_arrays.\1.', k)
-        if k.endswith('._initial_state') and '.neuron_arrays.' in k and v.dim() == 2:
-            v = v.reshape(-1)
-        out[k] = v
-    return out
-
-model.load_state_dict(convert_branch_state_dict(old_state_dict), strict=True)
-```
-
-This was verified on S3 checkpoints of models with neuron arrays only (no scalar-state neurons):
-after conversion, the logits are identical to the branch's. It has not been checked for models
-that also have scalar-state neurons.

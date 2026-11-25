@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alessandro Ronca
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+import warnings
+
 import torch
 import torch.nn as nn
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 
 from .minmax_rnc             import MinMaxRNC, MinMaxRNCConfig, ConvType
 from .modules.initialisers   import small_init_init_
@@ -39,6 +41,10 @@ class MinMaxRNCLMConfig:
         Dropout applied inside the FFN of every layer except the first, which
         uses backbone.prelayers_dropout (default 0.0) instead.
         Always replaces backbone.ffn_dropout: set it here, not on the backbone.
+
+    A UserWarning is raised when one of output_gate, conv_type and
+    ffn_dropout is set on the backbone to a non-default value that differs
+    from the one here, since the backbone's value would be silently ignored.
     """
 
     backbone:     MinMaxRNCConfig
@@ -47,6 +53,19 @@ class MinMaxRNCLMConfig:
     output_gate:  bool     = True
     conv_type:    ConvType = 'basic'
     ffn_dropout:  float    = 0.1
+
+    # Fields of MinMaxRNCLMConfig that always replace the backbone's.
+    _OVERRIDDEN_BACKBONE_FIELDS = ('output_gate', 'conv_type', 'ffn_dropout')
+
+    def __post_init__(self):
+        defaults = {f.name: f.default for f in fields(MinMaxRNCConfig)}
+        for name in self._OVERRIDDEN_BACKBONE_FIELDS:
+            bb_value, lm_value = getattr(self.backbone, name), getattr(self, name)
+            if bb_value != defaults[name] and bb_value != lm_value:
+                warnings.warn(
+                    f"backbone.{name}={bb_value!r} is ignored: MinMaxRNCLMConfig.{name}="
+                    f"{lm_value!r} replaces it. Set {name} on MinMaxRNCLMConfig instead.",
+                    UserWarning, stacklevel=3)
 
 
 class MinMaxRNC_LM(MinMaxRNC):

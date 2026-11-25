@@ -2,7 +2,7 @@
 # MinMax Recurrent Neural Cascades
 
 [Project website](https://minmaxrnc.org/) &nbsp;·&nbsp; [NeurIPS paper](https://openreview.net/forum?id=8sPcuoX2cj) &nbsp;·&nbsp;
-[arXiv paper](https://arxiv.org/abs/2605.06384) &nbsp;·&nbsp; [Documentation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/README.md)
+[arXiv paper](https://arxiv.org/abs/2605.06384) &nbsp;·&nbsp; [Documentation](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/README.md)
 
 ---
 
@@ -39,7 +39,7 @@ A parallelisable sequence model, based on a novel form of recurrence —
     usage over long sequences, they can be computed in chunks of <em>k</em> steps using recurrence across
     chunks (`unroll_steps = k`).
     All strategies give identical results; see
-    [Parallel computation](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md#parallel-computation-via-prefix-scan) for their
+    [Parallel computation](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/foundations.md#parallel-computation-via-prefix-scan) for their
     computational cost.
 
   *Efficient inference.* Recurrence enables inference with per-token compute and memory
@@ -123,7 +123,7 @@ for _ in range(max_new_tokens):
 
 ### Presets
 
-Three ready-made sizes. Each is an ordinary [`MinMaxRNCConfig`](https://github.com/minmaxrnc/model/blob/v0.4.0/src/minmaxrnc/minmax_rnc.py), so it can be used as it is or as a
+Three ready-made sizes. Each is an ordinary [`MinMaxRNCConfig`](https://github.com/minmaxrnc/model/blob/v0.4.1/src/minmaxrnc/minmax_rnc.py), so it can be used as it is or as a
 starting point:
 
 ```python
@@ -144,7 +144,7 @@ model = MinMaxRNC_LM(50257, MinMaxRNCLMConfig(backbone=MinMaxRNCConfig.large(), 
 | `medium` | 512       | 8          | 512              | ~20.8 M               | ~46.6 M                      |
 | `large`  | 728       | 12         | 1456             | ~88.6 M               | ~125.2 M                     |
 
-See [Presets](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.md#presets) for the details.
+See [Presets](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/configuration.md#presets) for the details.
 
 ### Custom configuration
 
@@ -153,16 +153,17 @@ neurons (<em>d</em> = 1) are the cheapest, and larger <em>d</em> lets a neuron t
 permutations of <em>d</em> elements.
 
 ```python
+import torch
 from minmaxrnc import MinMaxRNC, MinMaxRNCConfig, NeuronArray
 
 cfg = MinMaxRNCConfig(
     d_model          = 768,
     n_layers         = 12,
     scalar_neurons   = 192,                           # 192 scalar-state neurons per layer
-    neurons          = [
-        NeuronArray(d_state=3, num_neurons=16),       # 16 neurons with 3-dimensional state
-        (4, 2),                                       # tuple shorthand: d_state=4, num_neurons=2
-    ],
+    neurons          = [                              # plus two neuron arrays per layer:
+        NeuronArray(d_state=3, num_neurons=16),       #   16 neurons with 3-dimensional state
+        (4, 2),                                       #   2 neurons with 4-dimensional state,
+    ],                                                #   tuple shorthand for NeuronArray(4, 2)
     norm             = 'rmsnorm',
     ffn_type         = 'gated',
     ffn_act_fn       = 'swish',                       # → SwiGLU
@@ -170,12 +171,15 @@ cfg = MinMaxRNCConfig(
     use_postlayers_ffn = True,
 )
 model = MinMaxRNC(cfg)
+
+u = torch.randn(batch_size, seq_len, 768)
+y = model(u, unroll_steps=seq_len)                    # (B, T, 768)
 ```
 
 The neurons of an array are evaluated together, as one batched computation. The cost of a neuron
 grows as <em>d</em><sup>3</sup>, so keep <em>d</em> small (≈ 2–8) and scale with more neurons instead. See
-[Configuration](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.md) for every field, and
-[MinMax Neuron Arrays](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md#minmax-neuron-arrays) for the cost.
+[Configuration](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/configuration.md) for every field, and
+[MinMax Neuron Arrays](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/architecture.md#minmax-neuron-arrays) for the cost.
 
 ### Mixed precision
 
@@ -189,7 +193,7 @@ from minmaxrnc import MinMaxRNCConfig
 cfg = dataclasses.replace(MinMaxRNCConfig.medium(), amp_dtype='bf16')
 ```
 
-See [Numerical precision](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/precision.md) for what each setting affects, and recommended
+See [Numerical precision](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/precision.md) for what each setting affects, and recommended
 combinations.
 
 ## How it works
@@ -215,17 +219,17 @@ current and the previous token, a **feed-forward network** for feature mixing, a
 MinMax neurons**, which receive the output of the other two. Only the neurons' output, summed over
 all neurons, is added back to the residual stream.
 
-See [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md) and [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md).
+See [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/foundations.md) and [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/architecture.md).
 
 ## Documentation
 
-- [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/foundations.md) — the MinMax algebra and recurrence, and how it
+- [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/foundations.md) — the MinMax algebra and recurrence, and how it
   is computed in parallel.
-- [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/architecture.md) — the modules, from neuron arrays to the language model,
+- [Architecture](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/architecture.md) — the modules, from neuron arrays to the language model,
   and their initialisation.
-- [Configuration](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/configuration.md) — every configuration field, and the presets.
-- [Numerical precision](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/precision.md) — mixed precision and the dtype of the recurrence.
-- [Upgrading from 0.3.0](https://github.com/minmaxrnc/model/blob/v0.4.0/docs/upgrading.md) — 0.4.0 is backward compatible with 0.3.0: no code
+- [Configuration](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/configuration.md) — every configuration field, and the presets.
+- [Numerical precision](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/precision.md) — mixed precision and the dtype of the recurrence.
+- [Upgrading from 0.3.0](https://github.com/minmaxrnc/model/blob/v0.4.1/docs/upgrading.md) — 0.4.0 is backward compatible with 0.3.0: no code
   changes are needed, and 0.3.0 checkpoints load as they are.
 
 ## How to cite
@@ -252,7 +256,7 @@ See [Mathematical foundations](https://github.com/minmaxrnc/model/blob/v0.4.0/do
   title   = {{MinMax} Recurrent Neural Cascades},
   year    = {2026},
   url     = {https://github.com/minmaxrnc/model},
-  version = {0.4.0},
+  version = {0.4.1},
 }
 ```
 

@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
+
+Backward compatible with 0.4.0: models, outputs and checkpoints are unchanged.
+
+### Added
+
+- `MinMaxRNCLMConfig` warns (`UserWarning`) when `output_gate`, `conv_type` or `ffn_dropout`
+  is set on the backbone to a non-default value that differs from the one of the LM config.
+  These three fields of the LM config always replace the backbone's (as documented), so such a
+  backbone value was silently ignored: for example,
+  `MinMaxRNCLMConfig(backbone=replace(MinMaxRNCConfig.small(), output_gate=False))` built a model
+  with the output gate. The model that is built is unchanged; set these fields on
+  `MinMaxRNCLMConfig`.
+- Tests: `tests/test_lm_config.py`.
 
 ### Changed
 
